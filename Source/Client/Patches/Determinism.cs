@@ -442,7 +442,9 @@ namespace Multiplayer.Client.Patches
     [HarmonyPatch(typeof(StatWorker), nameof(StatWorker.GetValue), typeof(Thing), typeof(bool), typeof(int))]
     static class StatWorkerGetValuePatch
     {
+#pragma warning disable CS0414
         private static readonly PawnCapacitiesHandler.CacheStatus CachedInInterface = (PawnCapacitiesHandler.CacheStatus)3;
+#pragma warning restore CS0414
 
         private static FieldInfo statusField = AccessTools.Field(typeof(PawnCapacitiesHandler.CacheElement),
             nameof(PawnCapacitiesHandler.CacheElement.status));

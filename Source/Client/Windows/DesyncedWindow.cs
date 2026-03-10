@@ -16,7 +16,9 @@ namespace Multiplayer.Client
         private readonly SaveableDesyncInfo desyncInfo;
         private float openedAt;
         private bool infoWritten;
+#pragma warning disable CS0649
         private bool rejoining;
+#pragma warning restore CS0649
 
         public DesyncedWindow(string text, SaveableDesyncInfo desyncInfo)
         {

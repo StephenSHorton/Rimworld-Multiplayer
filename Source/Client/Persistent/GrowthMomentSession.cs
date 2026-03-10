@@ -7,7 +7,9 @@ using Verse;
 
 namespace Multiplayer.Client.Persistent;
 
+#pragma warning disable CS9113
 public class GrowthMomentSession(Map _) : ExposableSession(null), ITickingSession
+#pragma warning restore CS9113
 {
     public static GrowthMomentSession GetSessionFor(Pawn pawn) =>
         pawn.Map.MpComp().sessionManager.GetFirstOfType<GrowthMomentSession>(sess => sess.Pawn == pawn);

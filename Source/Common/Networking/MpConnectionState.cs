@@ -11,7 +11,7 @@ namespace Multiplayer.Common
         protected readonly ConnectionBase connection = connection;
         public bool alive = true;
 
-        protected ServerPlayer Player => connection.serverPlayer;
+        protected ServerPlayer Player => connection.serverPlayer!;
         protected MultiplayerServer Server => MultiplayerServer.instance!;
 
         public virtual void StartState()

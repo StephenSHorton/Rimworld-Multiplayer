@@ -68,7 +68,7 @@ namespace Multiplayer.Common
 
             conn.StateObj?.OnDisconnect();
 
-            ServerPlayer player = conn.serverPlayer;
+            ServerPlayer player = conn.serverPlayer!;
             Players.Remove(player);
 
             if (player.hasJoined)
@@ -87,7 +87,7 @@ namespace Multiplayer.Common
                 //     server.commands.Send(CommandType.FactionOffline, ScheduledCommand.NoFaction, ScheduledCommand.Global, data);
                 // }
 
-                server.SendNotification("MpPlayerDisconnected", conn.username);
+                server.SendNotification("MpPlayerDisconnected", conn.username!);
                 server.SendChat($"{conn.username} has left.");
 
                 server.SendToPlaying(ServerPlayerListPacket.Remove(player.id));

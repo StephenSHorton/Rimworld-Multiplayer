@@ -33,7 +33,7 @@ namespace Multiplayer.Common
         // Track which map the player is currently on
         public int currentMapId = -1;
 
-        public string Username => conn.username;
+        public string Username => conn.username!;
         public int Latency => conn.Latency;
         public int FactionId { get; set; }
         public bool HasJoined => conn.State is ConnectionStateEnum.ServerLoading or ConnectionStateEnum.ServerPlaying;

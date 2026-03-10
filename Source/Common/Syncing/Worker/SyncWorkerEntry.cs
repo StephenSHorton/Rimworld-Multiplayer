@@ -42,7 +42,7 @@ public class SyncWorkerEntry
         if (method.ReturnType == typeof(void))
         {
             var func = (SyncWorkerDelegateNoReturn)Delegate.CreateDelegate(typeof(SyncWorkerDelegateNoReturn), method);
-            Add((SyncWorker sync, ref object obj) =>
+            Add((SyncWorker sync, ref object? obj) =>
             {
                 func(sync, ref obj);
                 return true;
@@ -58,7 +58,7 @@ public class SyncWorkerEntry
     {
         Add((SyncWorker sync, ref object? obj) => {
             var obj2 = (T?) obj;
-            func(sync, ref obj2);
+            func(sync, ref obj2!);
             obj = obj2;
             return true;
         });
@@ -92,7 +92,7 @@ public class SyncWorkerEntry
 
     public void Add(SyncWorkerEntry other)
     {
-        SyncWorkerEntry newEntry = Add(other.type, other, other.shouldConstruct);
+        SyncWorkerEntry newEntry = Add(other.type, other, other.shouldConstruct)!;
         newEntry.subclasses = other.subclasses;
     }
 

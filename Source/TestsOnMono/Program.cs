@@ -59,7 +59,8 @@ static class Program
 
     public static void GenericPostfix(ref SomeClass __result)
     {
-        __result = __result;
+        // Intentional no-op: postfix that doesn't modify the result
+        _ = __result;
     }
 
     class TestClass<S>
@@ -97,7 +98,9 @@ static class Program
 
     public class SomeClass2
     {
+#pragma warning disable CS0649 // Field is never assigned to
         public int a;
+#pragma warning restore CS0649
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         public int GetA() => a;
@@ -105,7 +108,7 @@ static class Program
 
     class TestClassForPatches<T>
     {
-        public T field;
+        public T field = default!;
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         public T GetField() => field;

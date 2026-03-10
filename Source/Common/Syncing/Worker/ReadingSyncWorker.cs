@@ -14,12 +14,12 @@ namespace Multiplayer.Client
 
         public override void Bind<T>(ref T obj, SyncType type)
         {
-            obj = (T)serialization.ReadSyncObject(reader, type);
+            obj = (T)serialization.ReadSyncObject(reader, type)!;
         }
 
         public override void Bind<T>(ref T obj)
         {
-            obj = (T)serialization.ReadSyncObject(reader, typeof(T));
+            obj = (T)serialization.ReadSyncObject(reader, typeof(T))!;
         }
 
         public override void Bind(object obj, string name)

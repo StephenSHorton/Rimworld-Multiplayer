@@ -1,4 +1,5 @@
-﻿using System;
+﻿#nullable enable
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -11,8 +12,8 @@ namespace MultiplayerLoader
     // This class has to be named Multiplayer for backwards compatibility of the settings file location
     public class Multiplayer : Mod
     {
-        public static Multiplayer instance;
-        public static Action<Rect> settingsWindowDrawer;
+        public static Multiplayer instance = null!;
+        public static Action<Rect>? settingsWindowDrawer;
 
         public Multiplayer(ModContentPack content) : base(content)
         {

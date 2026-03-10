@@ -277,7 +277,7 @@ public class PacketTest
     }
 
     private static Binder<IPacket> RuntimeBinderOf(IPacket p) => RuntimeBinderOf(p.GetType());
-    private static Binder<IPacket> RuntimeBinderOf(Type type) => (PacketBuffer buf, ref IPacket? packet) =>
+    private static Binder<IPacket> RuntimeBinderOf(Type type) => (PacketBuffer buf, ref IPacket packet) =>
     {
         // Normally packets are structs, so they can't be null, but here we are using them dynamically, so we need to
         // initialize them.

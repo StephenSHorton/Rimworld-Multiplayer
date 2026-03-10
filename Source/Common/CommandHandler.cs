@@ -73,7 +73,8 @@ namespace Multiplayer.Common
             server.settings.debugMode && server.settings.devModeScope switch
             {
                 DevModeScope.Everyone => true,
-                DevModeScope.HostOnly => player.IsHost
+                DevModeScope.HostOnly => player.IsHost,
+                _ => false
             };
     }
 }

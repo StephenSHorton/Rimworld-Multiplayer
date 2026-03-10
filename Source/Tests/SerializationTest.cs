@@ -186,6 +186,8 @@ public class SerializationTest
         {
             return obj is C2 c && c.a == a;
         }
+
+        public override int GetHashCode() => a;
     }
 
     public class C3 : C2
@@ -196,6 +198,8 @@ public class SerializationTest
         {
             return obj is C3 c && c.b == b && c.a == a;
         }
+
+        public override int GetHashCode() => HashCode.Combine(a, b);
     }
 
     public interface IA;

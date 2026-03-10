@@ -238,7 +238,7 @@ public static class Layouter
 
     public static void EndScroll()
     {
-        if (currentGroup.paddingRight != 0f)
+        if (currentGroup!.paddingRight != 0f)
             Widgets.EndScrollView();
         EndVertical();
     }

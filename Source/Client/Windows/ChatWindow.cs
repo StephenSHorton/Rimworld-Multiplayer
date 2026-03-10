@@ -165,6 +165,7 @@ namespace Multiplayer.Client
         {
             // todo
             return;
+#pragma warning disable CS0162
 
             if (p.id == 0 && Event.current.button == 1)
             {
@@ -173,6 +174,7 @@ namespace Multiplayer.Client
                     //new FloatMenuOption("MpSeeModList".Translate(), () => DefMismatchWindow.ShowModList(Multiplayer.session.mods))
                 }));
             }
+#pragma warning restore CS0162
         }
 
         private Color GetColor(PlayerStatus status)

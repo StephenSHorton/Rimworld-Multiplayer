@@ -12,6 +12,7 @@
     <PublicizeAsReferenceAssemblies>false</PublicizeAsReferenceAssemblies>
     <RootNamespace>Multiplayer.Client</RootNamespace>
     <AssemblyName>Multiplayer</AssemblyName>
+    <NoWarn>$(NoWarn);MSB3245</NoWarn>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">

@@ -57,7 +57,7 @@ namespace Multiplayer.Common
         public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channelNumber, DeliveryMethod method)
         {
             byte[] data = reader.GetRemainingBytes();
-            peer.GetConnection().serverPlayer.HandleReceive(new ByteReader(data), method == DeliveryMethod.ReliableOrdered);
+            peer.GetConnection().serverPlayer!.HandleReceive(new ByteReader(data), method == DeliveryMethod.ReliableOrdered);
         }
 
         public void OnNetworkError(IPEndPoint endPoint, SocketError socketError) { }

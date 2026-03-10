@@ -2,7 +2,7 @@
 
 public static class ScribeLike
 {
-    public static Provider provider;
+    public static Provider provider = null!;
 
     /// <summary>
     /// Corresponds to Scribe_Values.Look

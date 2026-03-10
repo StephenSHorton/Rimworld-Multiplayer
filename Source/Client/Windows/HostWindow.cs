@@ -574,19 +574,19 @@ namespace Multiplayer.Client
 
                 LongEventHandler.ExecuteWhenFinished(() =>
                 {
-                    LongEventHandler.QueueLongEvent(() => HostUtil.HostServer(settings, false), "MpLoading", false, null);
+                    LongEventHandler.QueueLongEvent(() => _ = HostUtil.HostServer(settings, false), "MpLoading", false, null);
                 });
             }, "Play", "LoadingLongEvent", true, null);
         }
 
         private void HostFromSpIngame(ServerSettings settings)
         {
-            HostUtil.HostServer(settings, false);
+            _ = HostUtil.HostServer(settings, false);
         }
 
         private void HostFromReplay(ServerSettings settings)
         {
-            void ReplayLoaded() => HostUtil.HostServer(settings, true);
+            void ReplayLoaded() => _ = HostUtil.HostServer(settings, true);
 
             if (file != null)
             {

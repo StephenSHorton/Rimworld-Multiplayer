@@ -85,7 +85,7 @@ namespace Multiplayer.Common
             for (int i = 0; i < maps; i++)
             {
                 int mapId = data.ReadInt32();
-                Server.worldData.mapData[mapId] = data.ReadPrefixedBytes();
+                Server.worldData.mapData[mapId] = data.ReadPrefixedBytes()!;
             }
 
             Server.worldData.savedGame = data.ReadPrefixedBytes();

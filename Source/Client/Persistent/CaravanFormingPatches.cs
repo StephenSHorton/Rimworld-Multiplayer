@@ -232,6 +232,7 @@ namespace Multiplayer.Client.Persistent
         }
     }
 
+#pragma warning disable CS0612
     [HarmonyPatch(typeof(TimedForcedExit), nameof(TimedForcedExit.CompTickInterval))]
     static class TimedForcedExitTickPatch
     {
@@ -243,6 +244,7 @@ namespace Multiplayer.Client.Persistent
             return true;
         }
     }
+#pragma warning restore CS0612
 
     [HarmonyPatch()]
     static class DisableCaravanFormCheckboxForOtherFactions

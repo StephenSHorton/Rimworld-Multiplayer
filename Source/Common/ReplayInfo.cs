@@ -8,17 +8,17 @@ namespace Multiplayer.Common;
 
 public class ReplayInfo
 {
-    public string name;
+    public string name = null!;
     public int protocol;
     public int playerFaction;
     public int spectatorFaction;
 
     public List<ReplaySection> sections = new();
 
-    public string rwVersion;
-    public List<string> modIds;
-    public List<string> modNames;
-    public List<int> modAssemblyHashes; // Unused, here to satisfy DirectXmlToObject on old saves
+    public string rwVersion = null!;
+    public List<string> modIds = null!;
+    public List<string> modNames = null!;
+    public List<int> modAssemblyHashes = null!; // Unused, here to satisfy DirectXmlToObject on old saves
 
     public XmlBool asyncTime;
     public bool multifaction;

@@ -61,9 +61,9 @@ class TomlScribe : ScribeLike.Provider
         else if (mode == TomlScribeMode.Saving)
         {
             if (typeof(T).IsEnum)
-                root[label] = value.ToString()!;
+                root[label] = value!.ToString()!;
             else
-                root[label] = value;
+                root[label] = value!;
         }
     }
 }

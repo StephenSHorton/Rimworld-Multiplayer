@@ -81,14 +81,14 @@ public class SyncWorkerDictionaryTree : SyncWorkerDictionary
             return true;
 
         foreach (var e in implicitEntries) {
-            syncWorkerEntry = e.GetClosest(type);
+            syncWorkerEntry = e.GetClosest(type)!;
 
             if (syncWorkerEntry != null)
                 return true;
         }
 
         foreach (var e in interfaceEntries) {
-            syncWorkerEntry = e.GetClosest(type);
+            syncWorkerEntry = e.GetClosest(type)!;
 
             if (syncWorkerEntry != null)
                 return true;

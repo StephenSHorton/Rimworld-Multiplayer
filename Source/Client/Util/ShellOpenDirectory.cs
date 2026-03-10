@@ -86,8 +86,8 @@ namespace Multiplayer.Client.Util
                 process.StartInfo = psi;
 				process.Start();
 				return true;
-			} catch (Win32Exception e) {
-            } catch (Exception e) {
+			} catch (Win32Exception) {
+            } catch (Exception) {
             }
 			return false;
 		}

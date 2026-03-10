@@ -401,6 +401,7 @@ namespace Multiplayer.Client
                 Find.WindowStack.Add(new RenameFileWindow(save.file, ReloadFiles));
             });
 
+#pragma warning disable CS0162
             if (!MpVersion.IsDebug) yield break;
 
             yield return new FloatMenuOption("Debug info", () =>
@@ -418,6 +419,7 @@ namespace Multiplayer.Client
                     SteamUGC.SubscribeItem(new PublishedFileId_t(id));
                 }
             });
+#pragma warning restore CS0162
         }
 
         private List<SteamPersona> friends = new List<SteamPersona>();
