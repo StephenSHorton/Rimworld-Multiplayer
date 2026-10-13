@@ -4,6 +4,16 @@
 
 The RimWorld Multiplayer mod allows users to play full games of Rimworld cooperatively.
 
+## RimWorld 1.7 (this fork's `rw-1.7` branch)
+
+The `rw-1.7` branch is a port to RimWorld 1.7, which runs on .NET 10 instead of Mono. It does not need Prepatcher. The built DLLs are committed, so the repository itself is the mod:
+
+1. Unsubscribe the Workshop Multiplayer mod. This build uses the same package id.
+2. `git clone --recurse-submodules -b rw-1.7 https://github.com/StephenSHorton/Rimworld-Multiplayer.git` and junction or copy it into RimWorld's `Mods` folder.
+3. Every player needs RimWorld 1.7 and the same commit of this branch.
+
+Build notes are in `CLAUDE.md`.
+
 ## Links
 [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=2606448745) |
 [Website](https://rimworldmultiplayer.com) |

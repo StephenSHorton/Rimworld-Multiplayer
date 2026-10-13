@@ -263,8 +263,7 @@ __pycache__/
 
 *.binlog
 
-/Assemblies
-/AssembliesCustom
+# rw-1.7 commits the built Assemblies/ and AssembliesCustom/ so the repo is the installable mod
 /Source/Publicise-1.0.0.zip
 /Source/publicise_hash.txt
 /Source/Publicise.exe

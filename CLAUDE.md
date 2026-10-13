@@ -7,30 +7,53 @@ A RimWorld mod enabling cooperative multiplayer gameplay.
 ```
 Source/
 ├── Multiplayer.sln          # Visual Studio solution
-├── Client/                  # Main client mod (net48) → Multiplayer.dll
-├── Common/                  # Shared library (net48) → MultiplayerCommon.dll
-├── Server/                  # Standalone dedicated server (net8.0)
-├── MultiplayerLoader/       # Mod entry point/loader (net48)
-├── Tests/                   # NUnit tests (net8.0)
-└── TestsOnMono/             # Mono compatibility tests (net48)
+├── Client/                  # Main client mod (net10.0) → Multiplayer.dll
+├── Common/                  # Shared library (net10.0) → MultiplayerCommon.dll
+├── Server/                  # Standalone dedicated server (net10.0)
+├── MultiplayerLoader/       # Mod entry point/loader (net10.0)
+├── Tests/                   # NUnit tests (net10.0)
+└── TestsOnMono/             # Mono-only tests; out of the solution on rw-1.7
 ```
 
 **How the projects relate:**
 - **MultiplayerLoader** is the RimWorld mod entry point. It loads Client and Common DLLs at runtime via reflection.
 - **Client** contains all gameplay patches, UI, networking, and sync logic. Depends on Common and MultiplayerLoader.
 - **Common** is shared between Client and Server: networking protocol (LiteNetLib), serialization, packets.
-- **Server** is a standalone .NET 8 console app for dedicated hosting. Depends on Common.
+- **Server** is a standalone .NET console app for dedicated hosting. Depends on Common.
 
 ## Build
 
 ```bash
+# once, from a RimWorld 1.7 install (copies Assembly-CSharp, UnityStubs and Steamworks into gitignored Refs/RimWorld)
+RIMWORLD_DIR="/path/to/RimWorld" ./scripts/fetch-rimworld-refs.sh    # or scripts\fetch-rimworld-refs.ps1
 cd Source
-dotnet build Multiplayer.sln
+dotnet build Multiplayer.sln -c Release
 ```
 
-**Requirements:** .NET 9 SDK, .NET Framework 4.8 Developer Pack
+**Requirements:** .NET 10 SDK. SourceGen needs Roslyn 5.3; if the SDK's compiler is older, add a gitignored `Source/Client/PersonalDefinitions.targets` that references `Microsoft.Net.Compilers.Toolset` 5.3.0.
 
-Post-build, Client automatically copies output DLLs to `Assemblies/` and `AssembliesCustom/` at the repo root (the mod folder structure RimWorld expects).
+Post-build, Client automatically copies output DLLs to `Assemblies/` and `AssembliesCustom/` at the repo root (the mod folder structure RimWorld expects). On `rw-1.7` those folders are committed: rebuild and commit them with every source change, because the repo itself is what players install. Never commit anything from `Refs/`; those are the game's files.
+
+## RimWorld 1.7 (`rw-1.7` branch)
+
+RimWorld 1.7 runs on the Waylith engine: CoreCLR (.NET 10), Vulkan, and `UnityStubs.dll` in place of UnityEngine. Mods get Harmony 3. This branch is the 1.7 port; `master` follows rwmt for 1.6.
+
+- **No Prepatcher.** Prepatcher cannot run on CoreCLR. Its one use, syncing ritual role assignment, is now a Harmony prefix in `MultiplayerLoader/SyncRituals.cs`.
+- **Shared generic bodies.** CoreCLR compiles one body for every reference-type instantiation of a generic method, so a patch on `Foo<A>.M` also runs for `Foo<B>`, while Harmony's replacement is built for `A`. `SyncRituals` shows the pattern: a prefix that takes the generic arguments as `object`, always returns false, and runs an unpatched `DynamicMethodDefinition` copy for the instance's own instantiation.
+- **Strict IL.** Mono tolerated IL that CoreCLR rejects with `InvalidProgramException`: `ret` with an empty stack for a non-void method, and branches out of a `try` block. Emitted and transpiled IL must be valid by the ECMA rules.
+- **Strict patch parameters.** Harmony 3 checks `__instance` and argument types. A static target takes no `__instance`.
+- **No Mono internals.** `Native` (the Mono embedding API, LMF stack walking, debug options) only runs when `Native.IsMono`. `MpUtil.MarkNoInlining` is a no-op on CoreCLR; Harmony already disables inlining of the methods it patches. `JittedMethods` (Mono profiler) is off.
+- **Desync stack traces.** Fast mode reads Mono's LMF, so on 1.7 it records no traces. Slow mode records managed traces (`DeferredStackTracing.ManagedTrace`).
+- **Early static constructors.** Don't call `Verse.Widgets` helpers (or anything that touches textures and shaders) from patch setup; it runs the class constructor before the graphics device is ready.
+
+Check a change against the real game DLLs before shipping it. `rimworld-mods/tools/RwCompat` lists members a DLL references that 1.7 no longer has, and `rimworld-mods/tools/RwPatchHarness --patch --mp-init` applies every Harmony patch and runs Multiplayer's sync setup under .NET 10 without starting the game.
+
+### Installing this build
+
+1. Unsubscribe the Workshop Multiplayer mod (2606448745); this build uses the same package id, `rwmt.Multiplayer`.
+2. `git clone --recurse-submodules -b rw-1.7 https://github.com/StephenSHorton/Rimworld-Multiplayer.git`, then junction or copy the clone into RimWorld's `Mods` folder.
+3. Every player needs RimWorld 1.7 and the same commit of this branch. Multiplayer compares mod files when a player joins.
+4. Pull with RimWorld closed.
 
 ## Key Architecture
 
@@ -89,4 +112,4 @@ Version is defined in `Source/Common/Version.cs` (`SimpleVersion` constant). Als
 - **Branch naming:** `issue-{number}-description` (e.g. `issue-9-feature`)
 - **Commit prefix:** `#{issue_number}: description`
 - **Merge policy:** Squash merge, 2+ reviewer approval
-- **CI:** GitHub Actions runs restore → build (Debug + Release) → test on `ubuntu-latest` with .NET 9
+- **CI:** GitHub Actions runs restore → build (Debug + Release) → test on `ubuntu-latest` with .NET 9 (upstream; `rw-1.7` needs the game refs and is not built in CI)
