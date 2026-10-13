@@ -278,3 +278,5 @@ PersonalDefinitions.targets
 !Source/Client/Debug/
 
 /Source/mpdb
+# RimWorld 1.7 compile references (game files, fetched by scripts/fetch-rimworld-refs)
+Refs/

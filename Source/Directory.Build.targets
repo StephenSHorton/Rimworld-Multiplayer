@@ -1,0 +1,32 @@
+<Project>
+  <!--
+    RimWorld 1.7 runs on the Waylith engine: .NET 10 (CoreCLR), UnityStubs in place of
+    UnityEngine, Harmony 3. Projects that set ReferenceRimWorld compile against the
+    game's own assemblies, copied into Refs/RimWorld by scripts/fetch-rimworld-refs.
+  -->
+  <PropertyGroup>
+    <RimWorldRefs Condition="'$(RimWorldRefs)' == ''">$(MSBuildThisFileDirectory)..\Refs\RimWorld\</RimWorldRefs>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(ReferenceRimWorld)' == 'true'">
+    <!-- RimWorld.MultiplayerAPI pulls in the 1.6 Krafs reference pack; keep it out. -->
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.4518" ExcludeAssets="all" PrivateAssets="all" />
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RimWorldRefs)Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityStubs">
+      <HintPath>$(RimWorldRefs)UnityStubs.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="com.rlabrecque.steamworks.net">
+      <HintPath>$(RimWorldRefs)com.rlabrecque.steamworks.net.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckRimWorldRefs" BeforeTargets="ResolveAssemblyReferences"
+          Condition="'$(ReferenceRimWorld)' == 'true' And !Exists('$(RimWorldRefs)Assembly-CSharp.dll')">
+    <Error Text="RimWorld 1.7 references not found in $(RimWorldRefs). Run scripts/fetch-rimworld-refs.sh (or .ps1) with your RimWorld install first." />
+  </Target>
+</Project>

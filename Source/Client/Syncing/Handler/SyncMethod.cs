@@ -5,7 +5,6 @@ using HarmonyLib;
 using Multiplayer.API;
 using Multiplayer.Client.Util;
 using Multiplayer.Common;
-using MultiplayerLoader;
 using Verse;
 
 namespace Multiplayer.Client
@@ -20,7 +19,7 @@ namespace Multiplayer.Client
     public delegate void SyncMethodWriter(object obj, SyncType type, string debugInfo);
 
 
-    public class SyncMethod : SyncHandler, ISyncMethod, ISyncMethodForPrepatcher
+    public class SyncMethod : SyncHandler, ISyncMethod
     {
         public readonly Type targetType;
         public readonly MethodInfo method;
@@ -43,15 +42,13 @@ namespace Multiplayer.Client
         private Action<object, object[]> beforeCall;
         private Action<object, object[]> afterCall;
 
-        public Type TargetType => targetType;
-
         public SyncMethod(Type targetType, string instancePath, MethodInfo method, SyncType[] inTypes)
         {
             this.method = method;
             this.targetType = targetType;
             this.instancePath = instancePath;
 
-            methodDelegate = MethodInvoker.GetHandler(method);
+            methodDelegate = HarmonyLib.MethodInvoker.GetHandler(method);
             argTypes = CheckArgs(method, inTypes);
             argNames = method.GetParameters().Names();
             argTransformers = new SyncTransformer[argTypes.Length];

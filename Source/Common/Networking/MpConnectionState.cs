@@ -180,7 +180,7 @@ namespace Multiplayer.Common
             if (packetHandlerInfo == null)
             {
                 packetHandlers[(int)state, (int)attr.packet] =
-                    new PacketHandlerInfo(null!, false, MethodInvoker.GetHandler(method));
+                    new PacketHandlerInfo(null!, false, HarmonyLib.MethodInvoker.GetHandler(method));
                 return;
             }
             if (packetHandlerInfo.FragmentHandler != null)
@@ -191,7 +191,7 @@ namespace Multiplayer.Common
 
             packetHandlers[(int)state, (int)attr.packet] = packetHandlerInfo with
             {
-                FragmentHandler = MethodInvoker.GetHandler(method)
+                FragmentHandler = HarmonyLib.MethodInvoker.GetHandler(method)
             };
         }
     }

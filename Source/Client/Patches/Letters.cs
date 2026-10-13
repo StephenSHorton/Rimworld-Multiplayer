@@ -45,7 +45,7 @@ namespace Multiplayer.Client.Patches
                 letterType = method.DeclaringType;
             }
 
-            var handler = MethodInvoker.GetHandler(method);
+            var handler = HarmonyLib.MethodInvoker.GetHandler(method);
             defaultChoices[letterType] = (method, handler);
         }
 
