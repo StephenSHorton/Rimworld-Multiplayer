@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
+using HarmonyLib;
 using Multiplayer.Client.Desyncs;
 using Verse;
 
@@ -78,6 +80,12 @@ namespace Multiplayer.Client
 
         public override void Dispose()
         {
+            Clear();
+            SimplePool<StackTraceLogItemRaw>.Return(this);
+        }
+
+        protected void Clear()
+        {
             depth = 0;
             ticksGame = 0;
             rngState = 0;
@@ -85,8 +93,35 @@ namespace Multiplayer.Client
             thingDef = null;
             factionName = null;
             moreInfo = null;
+        }
+    }
 
-            SimplePool<StackTraceLogItemRaw>.Return(this);
+    // A trace from System.Diagnostics.StackTrace, for CoreCLR (RimWorld 1.7) where the Mono stack walk can't run
+    public class StackTraceLogItemManaged : StackTraceLogItemRaw
+    {
+        public MethodBase[] methods = new MethodBase[MaxDepth];
+
+        public override string StackTraceString
+        {
+            get
+            {
+                var builder = new StringBuilder();
+                for (int i = 0; i < depth; i++)
+                    builder.AppendLine(methods[i]?.FullDescription() ?? "Null");
+                return builder.ToString();
+            }
+        }
+
+        public new static StackTraceLogItemManaged GetFromPool()
+        {
+            return SimplePool<StackTraceLogItemManaged>.Get();
+        }
+
+        public override void Dispose()
+        {
+            Array.Clear(methods, 0, methods.Length);
+            Clear();
+            SimplePool<StackTraceLogItemManaged>.Return(this);
         }
     }
 }

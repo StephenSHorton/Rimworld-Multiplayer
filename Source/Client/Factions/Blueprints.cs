@@ -140,23 +140,24 @@ namespace Multiplayer.Client
     [HarmonyPatch(typeof(PlaceWorker_NeverAdjacentTrap), nameof(PlaceWorker_NeverAdjacentTrap.AllowsPlacing))]
     static class PlaceWorkerTrapPatch
     {
-        static IEnumerable<CodeInstruction> Transpiler(ILGenerator gen, IEnumerable<CodeInstruction> e, MethodBase original)
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> e, MethodBase original)
         {
             List<CodeInstruction> insts = e.ToList();
-            Label label = gen.DefineLabel();
 
             var finder = new CodeFinder(original, insts);
             int pos = finder.Forward(OpCodes.Stloc_S, 5);
+
+            // Skip the thing the same way the loop skips thingToIgnore (the beq right after the thing is loaded).
+            // In 1.7 the cell loop is inside a try/finally, so the instruction after the first ret is outside it
+            // and can't be branched to from the loop.
+            int skipIgnored = insts.FindIndex(pos, i => i.opcode == OpCodes.Beq || i.opcode == OpCodes.Beq_S);
 
             insts.Insert(
                 pos + 1,
                 new CodeInstruction(OpCodes.Ldloc_S, 5),
                 new CodeInstruction(OpCodes.Call, CanPlaceBlueprintAtPatch.ShouldIgnore1Method),
-                new CodeInstruction(OpCodes.Brtrue, label)
+                new CodeInstruction(OpCodes.Brtrue, insts[skipIgnored].operand)
             );
-
-            int ret = finder.Start().Forward(OpCodes.Ret);
-            insts[ret + 1].labels.Add(label);
 
             return insts;
         }

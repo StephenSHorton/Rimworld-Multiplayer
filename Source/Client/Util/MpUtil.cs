@@ -18,6 +18,11 @@ namespace Multiplayer.Client
     {
         public static unsafe void MarkNoInlining(MethodBase method)
         {
+            // This writes Mono's MonoMethod iflags. On CoreCLR (RimWorld 1.7) the handle points at a MethodDesc with
+            // a different layout and the write corrupts it; there Harmony disables inlining when it patches the method.
+            if (!Native.IsMono)
+                return;
+
             ushort* iflags = (ushort*)(method.MethodHandle.Value) + 1;
             *iflags |= (ushort)MethodImplOptions.NoInlining;
         }

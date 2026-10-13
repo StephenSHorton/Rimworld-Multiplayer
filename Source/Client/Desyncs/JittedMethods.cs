@@ -38,6 +38,9 @@ public static class JittedMethods
 
     public static void Init()
     {
+        // Uses Mono's profiler API; CoreCLR (RimWorld 1.7) has no equivalent, so the list stays empty there
+        if (!Native.IsMono) return;
+
         profiler = Native.mono_profiler_create(IntPtr.Zero);
         Native.mono_profiler_set_jit_done_callback(profiler, (_, method, _) =>
         {
@@ -73,6 +76,7 @@ public static class JittedMethods
 
     public static void OnApplicationQuit()
     {
+        if (profiler == IntPtr.Zero) return;
         Native.mono_profiler_set_jit_done_callback(profiler, null);
     }
 

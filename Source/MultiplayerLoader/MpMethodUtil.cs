@@ -185,5 +185,16 @@ namespace Multiplayer.Client.Util
                 throw new ArgumentException($"Char {c} not found in string {s}");
             return s.Substring(0, s.IndexOf(c));
         }
+
+        // Verse.Widgets has one too, but calling it runs Widgets' static constructor, which loads UI textures and
+        // (in RimWorld 1.7) shaders, and that must not happen as a side effect of looking up patch targets
+        private static int CharacterCount(this string s, char c)
+        {
+            int count = 0;
+            foreach (var ch in s)
+                if (ch == c)
+                    count++;
+            return count;
+        }
     }
 }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using HarmonyLib;
@@ -31,7 +32,16 @@ namespace Multiplayer.Client.Desyncs
 
         public static void Postfix()
         {
-            if (Native.LmfPtr == 0) return;
+            if (Native.LmfPtr == 0)
+            {
+                // CoreCLR (RimWorld 1.7) has no Mono LMF to walk. A managed StackTrace is far too slow for every Rand
+                // call, so there it only runs in the Slow tracing mode.
+                if (!Native.IsMono && Multiplayer.settings?.desyncTracingMode == DesyncTracingMode.Slow &&
+                    ShouldAddStackTraceForDesyncLog())
+                    ManagedTrace();
+                return;
+            }
+
             if (!ShouldAddStackTraceForDesyncLog()) return;
 
             var logItem = StackTraceLogItemRaw.GetFromPool();
@@ -43,6 +53,36 @@ namespace Multiplayer.Client.Desyncs
             Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash);
 
             acc++;
+        }
+
+        private static Dictionary<MethodBase, int> managedNameHashes = new();
+
+        private static void ManagedTrace()
+        {
+            var logItem = StackTraceLogItemManaged.GetFromPool();
+            // Skip this frame and Postfix, like the Mono walk skips Postfix
+            var frames = new StackTrace(2, false).GetFrames();
+            int hash = 0;
+            int depth = 0;
+
+            foreach (var frame in frames)
+            {
+                if (depth == StackTraceLogItemRaw.MaxDepth) break;
+
+                // Harmony's replacement for a patched method shows as a dynamic method; name it by the original
+                var method = Harmony.GetMethodFromStackframe(frame);
+                logItem.methods[depth++] = method;
+
+                if (method == null)
+                    continue;
+
+                if (!managedNameHashes.TryGetValue(method, out int nameHash))
+                    managedNameHashes[method] = nameHash = GenText.StableStringHash(method.FullDescription());
+
+                hash = Gen.HashCombineInt(hash, nameHash);
+            }
+
+            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash);
         }
 
         public static bool ShouldAddStackTraceForDesyncLog()

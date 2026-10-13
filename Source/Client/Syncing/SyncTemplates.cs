@@ -82,7 +82,7 @@ namespace Multiplayer.Client
             }
             yield return new CodeInstruction(OpCodes.Call, m_General);
             yield return new CodeInstruction(OpCodes.Brtrue, label);
-            foreach (var code in CreateDefaultCodes(gen, AccessTools.GetReturnedType(original)))
+            foreach (var code in CreateDefaultReturnValue(gen, AccessTools.GetReturnedType(original)))
                 yield return code;
             yield return new CodeInstruction(OpCodes.Ret);
 
@@ -90,6 +90,22 @@ namespace Multiplayer.Client
             list.First().labels.Add(label);
             foreach (var instruction in list)
                 yield return instruction;
+        }
+
+        static IEnumerable<CodeInstruction> CreateDefaultReturnValue(ILGenerator generator, Type type)
+        {
+            // For a struct, CreateDefaultCodes zeroes a local in place and leaves nothing on the stack (which suits an
+            // out parameter's address). A return needs the value: CoreCLR rejects a ret with an empty stack.
+            if (AccessTools.IsStruct(type)) {
+                var v = generator.DeclareLocal(type);
+                yield return new CodeInstruction(OpCodes.Ldloca, v);
+                yield return new CodeInstruction(OpCodes.Initobj, type);
+                yield return new CodeInstruction(OpCodes.Ldloc, v);
+                yield break;
+            }
+
+            foreach (var code in CreateDefaultCodes(generator, type))
+                yield return code;
         }
 
         static IEnumerable<CodeInstruction> CreateDefaultCodes(ILGenerator generator, Type type)

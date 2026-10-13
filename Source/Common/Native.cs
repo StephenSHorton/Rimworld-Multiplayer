@@ -14,6 +14,10 @@ namespace Multiplayer.Client
             Windows, OSX, Linux, Dummy
         }
 
+        // RimWorld 1.7 runs on CoreCLR. Everything below that calls into Mono (the P/Invokes, the LMF pointer, the JIT
+        // info lookups) only works on Mono; on CoreCLR the init methods do nothing and the lookups return nothing.
+        public static bool IsMono { get; } = Type.GetType("Mono.Runtime") != null;
+
         public static IntPtr DomainPtr { get; private set; }
 
         // LMF is Last Managed Frame
@@ -24,6 +28,9 @@ namespace Multiplayer.Client
 
         public static void EarlyInit(NativeOS os)
         {
+            if (!IsMono)
+                return;
+
             if (os == NativeOS.Linux)
                 TheLinuxWay();
             if (os == NativeOS.OSX)
@@ -48,6 +55,10 @@ namespace Multiplayer.Client
         {
             // Don't bother on 32 bit runtimes
             if (IntPtr.Size == 4)
+                return;
+
+            // CoreCLR has no Mono LMF; LmfPtr stays 0 and the Mono stack walk is off
+            if (!IsMono)
                 return;
 
             const BindingFlags all = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public |
@@ -76,6 +87,8 @@ namespace Multiplayer.Client
 
         private static IntPtr MaybeFindHarmonyOriginalMethod(long addr, bool harmonyOriginals)
         {
+            if (DomainPtr == IntPtr.Zero) return IntPtr.Zero;
+
             var ji = mono_jit_info_table_find(DomainPtr, (IntPtr)addr);
             if (ji == IntPtr.Zero) return IntPtr.Zero;
 
@@ -111,6 +124,7 @@ namespace Multiplayer.Client
         public static bool GetMethodAggressiveInlining(long addr)
         {
             var domain = DomainPtr;
+            if (domain == IntPtr.Zero) return false;
             var ji = mono_jit_info_table_find(domain, (IntPtr)addr);
 
             if (ji == IntPtr.Zero) return false;
