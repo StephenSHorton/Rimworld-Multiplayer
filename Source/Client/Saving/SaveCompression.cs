@@ -11,6 +11,38 @@ namespace Multiplayer.Client
     public static class SaveCompression
     {
         public static bool doSaveCompression;
+
+        // Things saved by reference from outside what CompressibilityDecider checks. Trees seen by pawns
+        // (Pawn_SurroundingsTracker's tree sightings) were compressed away and their references broke on load.
+        public static readonly HashSet<Thing> extraReferenced = new();
+
+        /// <summary>
+        /// Vanilla refreshes each map's CompressibilityDecider only from MapFileCompressor, which Multiplayer skips,
+        /// so refresh it here, and collect the references it does not know about.
+        /// </summary>
+        public static void PrepareReferences()
+        {
+            extraReferenced.Clear();
+            foreach (var map in Find.Maps)
+                map.compressor?.compressibilityDecider.DetermineReferences();
+
+            foreach (var pawn in PawnsFinder.All_AliveOrDead)
+            {
+                var s = pawn.surroundings;
+                if (s == null) continue;
+                AddTrees(s.miniTreeSightings);
+                AddTrees(s.fullTreeSightings);
+                AddTrees(s.superTreeSightings);
+            }
+        }
+
+        private static void AddTrees(List<TreeSighting> sightings)
+        {
+            if (sightings == null) return;
+            foreach (var sighting in sightings)
+                if (sighting?.tree != null)
+                    extraReferenced.Add(sighting.tree);
+        }
         private static Dictionary<ushort, ThingDef> thingDefsByShortHash;
 
         const string CompressedRocks = "compressedRocks";
@@ -380,7 +412,7 @@ namespace Multiplayer.Client
 
         static bool Referenced(Thing t)
         {
-            return t.Map?.compressor?.compressibilityDecider.IsReferenced(t) ?? false;
+            return (t.Map?.compressor?.compressibilityDecider.IsReferenced(t) ?? false) || SaveCompression.extraReferenced.Contains(t);
         }
     }
 }

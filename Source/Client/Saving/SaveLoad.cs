@@ -166,6 +166,7 @@ namespace Multiplayer.Client
 
         public static XmlDocument SaveGameToDoc()
         {
+            SaveCompression.PrepareReferences();
             SaveCompression.doSaveCompression = true;
 
             try
@@ -188,6 +189,7 @@ namespace Multiplayer.Client
             finally
             {
                 SaveCompression.doSaveCompression = false;
+                SaveCompression.extraReferenced.Clear();
             }
 
             return ScribeUtil.FinishWritingToDoc();
