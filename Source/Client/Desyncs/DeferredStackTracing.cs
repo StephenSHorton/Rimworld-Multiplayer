@@ -82,7 +82,9 @@ namespace Multiplayer.Client.Desyncs
                 hash = Gen.HashCombineInt(hash, nameHash);
             }
 
-            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash);
+            // CoreCLR's tiered JIT inlines differently in each process, so the same call can show different
+            // frames on the host and a client. Hashing the stack would report those as desyncs.
+            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash, hashStack: false);
         }
 
         public static bool ShouldAddStackTraceForDesyncLog()

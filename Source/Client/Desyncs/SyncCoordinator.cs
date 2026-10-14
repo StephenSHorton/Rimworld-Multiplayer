@@ -212,7 +212,7 @@ namespace Multiplayer.Client
             OpinionInBuilding.desyncStackTraceHashes.Add(hash);
         }
 
-        public void TryAddStackTraceForDesyncLogRaw(StackTraceLogItemRaw item, int depth, int hashIn, string moreInfo = null)
+        public void TryAddStackTraceForDesyncLogRaw(StackTraceLogItemRaw item, int depth, int hashIn, string moreInfo = null, bool hashStack = true)
         {
             if (!ShouldCollect) return;
 
@@ -232,7 +232,11 @@ namespace Multiplayer.Client
                 item.thingId = thing.thingIDNumber;
             }
 
-            var hash = Gen.HashCombineInt(hashIn, depth, (int)(item.rngState >> 32), (int)item.rngState);
+            // A stack that isn't stable between processes (CoreCLR's managed traces) stays out of the hash, so
+            // only the random state is compared; the stack is still kept for the report.
+            var hash = hashStack
+                ? Gen.HashCombineInt(hashIn, depth, (int)(item.rngState >> 32), (int)item.rngState)
+                : Gen.HashCombineInt(item.ticksGame, 0, (int)(item.rngState >> 32), (int)item.rngState);
             item.hash = hash;
 
             OpinionInBuilding.desyncStackTraces.Add(item);
