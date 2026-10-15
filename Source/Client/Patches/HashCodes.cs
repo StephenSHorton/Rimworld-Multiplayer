@@ -94,149 +94,53 @@ namespace Multiplayer.Client.Patches
         }
     }
 
-    // Have created a patch that will handle 2-8 System.HashCode.Combine functions.
-    // TODO: Check the following:
-    // TileQueryParams.GetHashCode
-    // UnmanagedGridTraverseParams.GetHashCode
-    // MapGridRequest.GetHashCode
-    // SimplifiedPastureNutritionSimulator.GetHashCode
-    // FieldAliasCache.GetHashCode
-    static class HashCodeDetours
-    {
-        private static readonly Type HashCodeType = typeof(string).Assembly.GetType("System.HashCode");
-
-        internal static MethodBase GetCombineIntMethod(int numOfInts)
-        {
-            Type[] intTypes = Enumerable.Repeat(typeof(int), numOfInts).ToArray();
-
-            // Look for a pre-compiled int,int,… overload (only exists on some runtimes)
-            MethodInfo method = HashCodeType.GetMethod("Combine", BindingFlags.Public | BindingFlags.Static, binder: null, types: intTypes, modifiers: null);
-            if (method != null)
-                return method;   // good – no generics involved
-
-            // Fall back to the generic definition and close it for <int,…,int>
-            MethodInfo genericMethod = HashCodeType.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                                 .First(x =>
-                                    x.Name == "Combine" &&
-                                    x.IsGenericMethodDefinition &&
-                                    x.GetGenericArguments().Length == numOfInts);
-
-            return genericMethod.MakeGenericMethod(intTypes);
-        }
-    }
-
-    //  ─── PATCH 2 ints ─────────────────────────────────────────
+    // System.HashCode is seeded per process, so game code that seeds Rand with HashCode.Combine would roll
+    // differently for each player. Only those call sites are rewritten. Patching HashCode.Combine itself is not
+    // safe on CoreCLR: callers that were precompiled with it inlined (ValueTuple.GetHashCode in CoreLib) or that
+    // the JIT inlined it into keep the original, so one key hashed two ways and tuple-keyed dictionaries lost
+    // entries. Save loading's LoadIDsWantedBank is one, which broke thousands of references on every
+    // Multiplayer load (designation targets, jobs, owned beds) and left pawns standing at their work.
     [HarmonyPatch]
-    static class Combine2Patch
+    static class DeterministicHashCodeSeeds
     {
-        static MethodBase TargetMethod() => HashCodeDetours.GetCombineIntMethod(2);
+        private static readonly Type HashCodeType = typeof(HashCode);
 
-        static bool Prefix(int value1, int value2, ref int __result)
+        static IEnumerable<MethodBase> TargetMethods()
         {
-            if (Multiplayer.Client == null)
-                return true;
-
-            __result = Gen.HashCombineInt(value1, value2);
-            return false;
+            yield return AccessTools.PropertyGetter(typeof(Map), nameof(Map.NextGenSeed));
+            yield return AccessTools.PropertyGetter(typeof(Gravship), nameof(Gravship.ConstantRandSeed));
+            yield return AccessTools.Method(typeof(LayoutWorker), nameof(LayoutWorker.FillAllRooms));
         }
-    }
 
-    //  ─── PATCH 3 ints ─────────────────────────────────────────
-    [HarmonyPatch]
-    static class Combine3Patch
-    {
-        static MethodBase TargetMethod() => HashCodeDetours.GetCombineIntMethod(3);
-
-        static bool Prefix(int value1, int value2, int value3, ref int __result)
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> insts)
         {
-            if (Multiplayer.Client == null)
-                return true;
+            foreach (var inst in insts)
+            {
+                if (inst.operand is MethodInfo { Name: nameof(HashCode.Combine) } method && method.DeclaringType == HashCodeType)
+                {
+                    var parameters = method.GetParameters();
+                    if (parameters.All(p => p.ParameterType == typeof(int)))
+                    {
+                        var replacement = parameters.Length switch
+                        {
+                            2 => AccessTools.Method(typeof(DeterministicHashCodeSeeds), nameof(Combine2)),
+                            3 => AccessTools.Method(typeof(DeterministicHashCodeSeeds), nameof(Combine3)),
+                            _ => null
+                        };
 
-            __result = DeterministicHash.HashCombineInt(value1, value2, value3);
-            return false;
+                        if (replacement != null)
+                            inst.operand = replacement;
+                    }
+                }
+
+                yield return inst;
+            }
         }
-    }
 
-    //  ─── PATCH 4 ints ─────────────────────────────────────────
-    [HarmonyPatch]
-    static class Combine4Patch
-    {
-        static MethodBase TargetMethod() => HashCodeDetours.GetCombineIntMethod(4);
+        static int Combine2(int value1, int value2) =>
+            Multiplayer.Client == null ? HashCode.Combine(value1, value2) : Gen.HashCombineInt(value1, value2);
 
-        static bool Prefix(int value1, int value2, int value3, int value4, ref int __result)
-        {
-            if (Multiplayer.Client == null)
-                return true;
-
-            __result = Gen.HashCombineInt(value1, value2, value3, value4);
-            return false;
-        }
-    }
-
-    //  ─── PATCH 5 ints ─────────────────────────────────────────
-    [HarmonyPatch]
-    static class Combine5Patch
-    {
-        static MethodBase TargetMethod() => HashCodeDetours.GetCombineIntMethod(5);
-
-        static bool Prefix(int value1, int value2, int value3, int value4, int value5, ref int __result)
-        {
-            if (Multiplayer.Client == null)
-                return true;
-
-            __result = DeterministicHash.HashCombineInt(value1, value2, value3, value4, value5);
-            return false;
-        }
-    }
-
-    //  ─── PATCH 6 ints ─────────────────────────────────────────
-    [HarmonyPatch]
-    static class Combine6Patch
-    {
-        static MethodBase TargetMethod() => HashCodeDetours.GetCombineIntMethod(6);
-
-        static bool Prefix(int value1, int value2, int value3, int value4, int value5, int value6, ref int __result)
-        {
-            if (Multiplayer.Client == null)
-                return true;
-
-            __result = DeterministicHash.HashCombineInt(value1, value2, value3,
-                                                  value4, value5, value6);
-            return false;
-        }
-    }
-
-    //  ─── PATCH 7 ints ─────────────────────────────────────────
-    [HarmonyPatch]
-    static class Combine7Patch
-    {
-        static MethodBase TargetMethod() => HashCodeDetours.GetCombineIntMethod(7);
-
-        static bool Prefix(int value1, int value2, int value3, int value4, int value5, int value6, int value7, ref int __result)
-        {
-            if (Multiplayer.Client == null)
-                return true;
-
-            __result = DeterministicHash.HashCombineInt(value1, value2, value3, value4,
-                                                  value5, value6, value7);
-            return false;
-        }
-    }
-
-    //  ─── PATCH 8 ints ─────────────────────────────────────────
-    [HarmonyPatch]
-    static class Combine8Patch
-    {
-        static MethodBase TargetMethod() => HashCodeDetours.GetCombineIntMethod(8);
-
-        static bool Prefix(int value1, int value2, int value3, int value4, int value5, int value6, int value7, int value8, ref int __result)
-        {
-            if (Multiplayer.Client == null)
-                return true;
-
-            __result = DeterministicHash.HashCombineInt(value1, value2, value3, value4,
-                                                  value5, value6, value7, value8);
-            return false;
-        }
+        static int Combine3(int value1, int value2, int value3) =>
+            Multiplayer.Client == null ? HashCode.Combine(value1, value2, value3) : DeterministicHash.HashCombineInt(value1, value2, value3);
     }
 }
