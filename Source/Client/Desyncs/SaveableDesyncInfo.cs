@@ -22,7 +22,8 @@ public class SaveableDesyncInfo(
     ClientSyncOpinion local,
     ClientSyncOpinion remote,
     int diffAt,
-    bool diffAtFound)
+    bool diffAtFound,
+    string desyncMessage = null)
 {
     public readonly ClientSyncOpinion local = local;
     public readonly ClientSyncOpinion remote = remote;
@@ -108,6 +109,7 @@ public class SaveableDesyncInfo(
 
         desyncInfo
             .AppendLine("###Tick Data###")
+            .AppendLine($"Desync Reason|||{desyncMessage ?? "Unknown"}")
             .AppendLine($"Arbiter Connected And Playing|||{Multiplayer.session.ArbiterPlaying}")
             .AppendLine($"Last Valid Tick - Local|||{coordinator.lastValidTick}")
             .AppendLine($"Last Valid Tick - Arbiter|||{coordinator.arbiterWasPlayingOnLastValidTick}")

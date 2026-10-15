@@ -131,7 +131,7 @@ namespace Multiplayer.Client
             MpUI.ClearWindowStack();
             Find.WindowStack.Add(new DesyncedWindow(
                 desyncMessage,
-                new SaveableDesyncInfo(this, local, remote, diffAt, found)
+                new SaveableDesyncInfo(this, local, remote, diffAt, found, desyncMessage)
             ));
         }
 
