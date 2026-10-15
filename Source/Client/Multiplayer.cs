@@ -95,6 +95,7 @@ namespace Multiplayer.Client
 #endif
 
             modContentPack = content;
+            MultiplayerGame.CaptureDebugSettingsDefaults();
             Native.EarlyInit(
                 Application.platform switch
                 {
