@@ -64,20 +64,31 @@ namespace Multiplayer.Client
 
             SetThingMakerSeed(1);
 
-            foreach (var field in typeof(DebugSettings).GetFields(BindingFlags.Public | BindingFlags.Static))
-                if (!field.IsLiteral && field.FieldType == typeof(bool))
-                    field.SetValue(null, default(bool));
-
-            typeof(DebugSettings).TypeInitializer.Invoke(null, null);
+            // Invoking a type initializer again does nothing on CoreCLR, so the defaults captured at startup are
+            // written back instead. Resetting to false and re-running the initializer left every bool off: no damage,
+            // no storyteller, and effecters without children, whose progress bars threw and stopped pawns mining.
+            debugSettingsDefaults ??= CaptureDebugSettings();
+            foreach (var (field, value) in debugSettingsDefaults)
+                field.SetValue(null, value);
 
             foreach (var resolver in DefDatabase<RuleDef>.AllDefs.SelectMany(r => r.resolvers))
                 if (resolver is SymbolResolver_EdgeThing edgeThing)
                     edgeThing.randomRotations = new List<int>() { 0, 1, 2, 3 };
 
-            typeof(SymbolResolver_SingleThing).TypeInitializer.Invoke(null, null);
+            SymbolResolver_SingleThing.tmpRotations = new[] { Rot4.North, Rot4.South, Rot4.West, Rot4.East };
 
             FactionCreator.ClearData();
         }
+
+        private static List<(FieldInfo field, bool value)> debugSettingsDefaults;
+
+        public static void CaptureDebugSettingsDefaults() => debugSettingsDefaults = CaptureDebugSettings();
+
+        private static List<(FieldInfo field, bool value)> CaptureDebugSettings() =>
+            typeof(DebugSettings).GetFields(BindingFlags.Public | BindingFlags.Static)
+                .Where(field => !field.IsLiteral && field.FieldType == typeof(bool))
+                .Select(field => (field, (bool)field.GetValue(null)))
+                .ToList();
 
         public static void ClearPortraits()
         {
