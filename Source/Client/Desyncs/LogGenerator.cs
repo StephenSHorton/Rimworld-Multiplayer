@@ -176,8 +176,10 @@ namespace Multiplayer.Client
                     => @"/tmp/rimworld_log",
                 RuntimePlatform.OSXPlayer or RuntimePlatform.OSXEditor
                     => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Personal), $"Library/Logs/{Application.companyName}/{Application.productName}/Player.log"),
+                // RimWorld 1.7 writes its log to Logs\Player.log under the save data folder
                 RuntimePlatform.WindowsPlayer or RuntimePlatform.WindowsEditor
-                    => Path.Combine(Application.persistentDataPath, "Player.log"),
+                    => new[] { Path.Combine(Application.persistentDataPath, "Logs", "Player.log"), Path.Combine(Application.persistentDataPath, "Player.log") }
+                        .FirstOrDefault(File.Exists) ?? Path.Combine(Application.persistentDataPath, "Player.log"),
                 _ => null
             };
         }

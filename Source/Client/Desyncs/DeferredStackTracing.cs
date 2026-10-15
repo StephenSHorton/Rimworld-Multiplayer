@@ -35,10 +35,15 @@ namespace Multiplayer.Client.Desyncs
             if (Native.LmfPtr == 0)
             {
                 // CoreCLR (RimWorld 1.7) has no Mono LMF to walk. A managed StackTrace is far too slow for every Rand
-                // call, so there it only runs in the Slow tracing mode.
-                if (!Native.IsMono && Multiplayer.settings?.desyncTracingMode == DesyncTracingMode.Slow &&
-                    ShouldAddStackTraceForDesyncLog())
-                    ManagedTrace();
+                // call, so it only runs in the Slow tracing mode. Fast mode still records the tick, random state and
+                // thing being ticked, so a desync report shows where the games split instead of no traces at all.
+                if (!Native.IsMono && ShouldAddStackTraceForDesyncLog())
+                {
+                    if (Multiplayer.settings.desyncTracingMode == DesyncTracingMode.Slow)
+                        ManagedTrace();
+                    else
+                        ContextTrace();
+                }
                 return;
             }
 
@@ -53,6 +58,11 @@ namespace Multiplayer.Client.Desyncs
             Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash);
 
             acc++;
+        }
+
+        private static void ContextTrace()
+        {
+            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(StackTraceLogItemRaw.GetFromPool(), 0, 0, hashStack: false);
         }
 
         private static Dictionary<MethodBase, int> managedNameHashes = new();
