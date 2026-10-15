@@ -1,7 +1,11 @@
 ###############################################################################
 # Set default behavior to automatically normalize line endings.
 ###############################################################################
-* text=auto
+# Check every file out byte-for-byte as committed, whatever core.autocrlf says.
+# Multiplayer CRC-checks every Defs/Patches XML at join, so a clone that turns
+# LF into CRLF (autocrlf=true, the Git for Windows default) fails the join with
+# "Defs/KeyBindings.xml modified". Keep this line first.
+* -text
 
 ###############################################################################
 # Set default behavior for command prompt diff.
