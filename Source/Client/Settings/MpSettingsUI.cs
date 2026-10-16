@@ -108,6 +108,12 @@ public static class MpSettingsUI
         if (VersionChecker.IsContinuousRelease || VersionChecker.IsLocalBuild)
             listing.CheckboxLabeled("MpIncludeReplayInDesync".Translate(), ref settings.includeReplayInDesync);
 
+        // Outside dev mode and debug builds: on RimWorld 1.7 only Slow records stacks in a desync
+        // report, and players hunting a desync run release builds with dev mode off.
+        using (MpStyle.Set(TextAnchor.MiddleCenter))
+            if (listing.ButtonTextLabeled("Desync tracing mode", settings.desyncTracingMode.ToString()))
+                settings.desyncTracingMode = settings.desyncTracingMode.Cycle();
+
         if (Prefs.DevMode)
         {
             listing.CheckboxLabeled("Show debug info", ref settings.showDevInfo);
@@ -126,11 +132,6 @@ public static class MpSettingsUI
                     if (listing.ButtonText("Register file associations")) FileAssoc.Register();
                 }
             }
-#if DEBUG
-            using (MpStyle.Set(TextAnchor.MiddleCenter))
-                if (listing.ButtonTextLabeled("Desync tracing mode", settings.desyncTracingMode.ToString()))
-                    settings.desyncTracingMode = settings.desyncTracingMode.Cycle();
-#endif
         }
 
         listing.End();
