@@ -39,6 +39,7 @@ namespace Multiplayer.Common
         public CommandHandler commands;
         public ChatCommandManager chatCmdManager;
         public PlayerManager playerManager;
+        public SyncReferee referee;
         public List<INetManager> netManagers = [];
         public IEnumerable<ServerPlayer> JoinedPlayers => playerManager.JoinedPlayers;
         public IEnumerable<ServerPlayer> PlayingPlayers => playerManager.PlayingPlayers;
@@ -86,6 +87,7 @@ namespace Multiplayer.Common
             commands = new CommandHandler(this);
             chatCmdManager = new ChatCommandManager(this);
             playerManager = new PlayerManager(this);
+            referee = new SyncReferee(this);
 
             ChatCommandRegistry.Register(chatCmdManager, this);
 

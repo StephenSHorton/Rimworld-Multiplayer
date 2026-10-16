@@ -104,6 +104,7 @@ namespace Multiplayer.Client
             {
                 MultiplayerData.CollectDefInfos();
                 Sync.PostInitHandlers();
+                EarlyPatches.StableDefHash.CheckAfterDefsLoaded();
             }, "Loading"); // Right before the events from HandleCommandLine
 
             AutoJoinHandler.JoinIfApplicable();

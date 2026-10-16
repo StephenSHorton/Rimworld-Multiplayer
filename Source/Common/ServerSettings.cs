@@ -21,9 +21,12 @@ namespace Multiplayer.Common
         public bool asyncTime;
         public bool multifaction;
         public bool debugMode;
-        public bool desyncTraces = true;
+        // Off by default: on 1.7 trace hashes aren't compared (stacks differ between processes), so they only cost
+        // bandwidth; the random states, faults and lanes in the opinion do the checking.
+        public bool desyncTraces;
         public bool syncConfigs = true;
-        public AutoJoinPointFlags autoJoinPoint = AutoJoinPointFlags.Join | AutoJoinPointFlags.Desync;
+        // Autosave too, so a joiner never has to catch up through more than one autosave interval of commands.
+        public AutoJoinPointFlags autoJoinPoint = AutoJoinPointFlags.Join | AutoJoinPointFlags.Desync | AutoJoinPointFlags.Autosave;
         public DevModeScope devModeScope;
         public bool hasPassword;
         public string password = "";
@@ -63,9 +66,9 @@ namespace Multiplayer.Common
             ScribeLike.Look(ref asyncTime, "asyncTime");
             ScribeLike.Look(ref multifaction, "multifaction");
             ScribeLike.Look(ref debugMode, "debugMode");
-            ScribeLike.Look(ref desyncTraces, "desyncTraces", true);
+            ScribeLike.Look(ref desyncTraces, "desyncTraces");
             ScribeLike.Look(ref syncConfigs, "syncConfigs", true);
-            ScribeLike.Look(ref autoJoinPoint, "autoJoinPoint", AutoJoinPointFlags.Join | AutoJoinPointFlags.Desync);
+            ScribeLike.Look(ref autoJoinPoint, "autoJoinPoint", AutoJoinPointFlags.Join | AutoJoinPointFlags.Desync | AutoJoinPointFlags.Autosave);
             ScribeLike.Look(ref devModeScope, "devModeScope");
             ScribeLike.Look(ref hasPassword, "hasPassword");
             ScribeLike.Look(ref password!, "password", "");

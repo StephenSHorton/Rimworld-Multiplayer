@@ -68,7 +68,7 @@ namespace Multiplayer.Client
         static SyncAction<T, A, B, C> RegisterActions<T, A, B, C>(Func<A, B, C, IEnumerable<T>> func, ActionGetter<T> actionGetter, ActionWrapper<T, A, B, C> actionWrapper = null)
         {
             var sync = new SyncAction<T, A, B, C>(func, actionGetter, actionWrapper);
-            Sync.handlers.Add(sync);
+            Sync.AddHandler(sync);
 
             return sync;
         }

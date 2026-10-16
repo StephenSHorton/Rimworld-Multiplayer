@@ -5,6 +5,7 @@ using Multiplayer.Client.Desyncs;
 using Multiplayer.Client.Util;
 using Multiplayer.Common;
 using Multiplayer.Common.Networking.Packet;
+using Multiplayer.Common.Desyncs;
 using RimWorld;
 using Verse;
 
@@ -98,6 +99,9 @@ namespace Multiplayer.Client
             }
             else
             {
+                foreach (var soft in oldOpinion.softDifferences.Concat(newOpinion.softDifferences).Distinct())
+                    MpLog.Warn($"Sync check at tick {oldOpinion.startTick} (play continues): {soft}");
+
                 // Update fields
                 lastValidTick = oldOpinion.startTick;
                 arbiterWasPlayingOnLastValidTick = Multiplayer.session.ArbiterPlaying;
@@ -163,7 +167,7 @@ namespace Multiplayer.Client
         {
             if (!ShouldCollect) return;
             OpinionInBuilding.TryMarkSimulating();
-            OpinionInBuilding.commandRandomStates.Add((uint) (state >> 32));
+            OpinionInBuilding.commandRandomStates.Add(state);
         }
 
         /// <summary>
@@ -174,7 +178,7 @@ namespace Multiplayer.Client
         {
             if (!ShouldCollect) return;
             OpinionInBuilding.TryMarkSimulating();
-            OpinionInBuilding.worldRandomStates.Add((uint) (state >> 32));
+            OpinionInBuilding.worldRandomStates.Add(state);
         }
 
         /// <summary>
@@ -186,7 +190,31 @@ namespace Multiplayer.Client
         {
             if (!ShouldCollect) return;
             OpinionInBuilding.TryMarkSimulating();
-            OpinionInBuilding.GetRandomStatesForMap(map).Add((uint) (state >> 32));
+            OpinionInBuilding.GetRandomStatesForMap(map).Add(state);
+        }
+
+        public const int MaxFaultsPerOpinion = 32;
+
+        /// <summary>
+        /// Records an error logged while simulating. Both games should log the same errors on the same ticks;
+        /// one that only one game logged means that game ran a code path the other didn't.
+        /// </summary>
+        public void TryAddFault(int mapId, string message)
+        {
+            if (!ShouldCollect) return;
+
+            var opinion = OpinionInBuilding;
+            opinion.TryMarkSimulating();
+            if (opinion.faults.Count >= MaxFaultsPerOpinion) return;
+
+            var text = FaultSignature.Normalize(message);
+            opinion.faults.Add(new FaultEvent
+            {
+                tick = TickPatch.Timer,
+                mapId = mapId,
+                signature = FaultSignature.Hash(text),
+                text = text.Length > 300 ? text.Substring(0, 300) : text
+            });
         }
 
         /// <summary>

@@ -167,6 +167,10 @@ namespace Multiplayer.Client
         }
 
         [TypedPacketHandler]
+        public void HandleSyncVerdict(ServerSyncVerdictPacket packet) =>
+            OnMainThread.Enqueue(() => SyncVerdicts.Show(packet));
+
+        [TypedPacketHandler]
         public void HandleDesyncCheck(ServerSyncInfoPacket packet) =>
             Multiplayer.game?.sync.AddClientOpinionAndCheckDesync(ClientSyncOpinion.FromNet(packet.SyncOpinion));
 

@@ -8,6 +8,6 @@ namespace Multiplayer.Client
     public class MapRandomStateData(int mapId)
     {
         public int mapId = mapId;
-        public List<uint> randomStates = new();
+        public List<ulong> randomStates = new();
     }
 }

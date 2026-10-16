@@ -17,6 +17,7 @@ namespace Multiplayer.Common
         {
             connection.ChangeState(ConnectionStateEnum.ServerLoading);
             Player.ResetTimeVotes();
+            Server.referee.OnPlayerReset(Player);
         }
 
         [TypedPacketHandler]
@@ -195,7 +196,9 @@ namespace Multiplayer.Common
         public void HandleDesyncCheck(ClientSyncInfoPacket packet)
         {
             var arbiter = Server.ArbiterPlaying;
-            if (arbiter ? !Player.IsArbiter : !Player.IsHost) return; // policy
+            var isReference = arbiter ? Player.IsArbiter : Player.IsHost;
+            Server.referee.OnOpinion(Player, packet.rawSyncOpinion, isReference);
+            if (!isReference) return; // Only the reference game's opinions go out to the clients
 
             // Keep at most 10 sync infos
             Server.worldData.syncInfos.Add(packet.rawSyncOpinion);

@@ -119,9 +119,16 @@ namespace Multiplayer.Client
 
                 try
                 {
-                    if (!TickPatch.Simulating && (Multiplayer.LocalServer != null || Multiplayer.arbiterInstance))
-                        Multiplayer.Client.SendFragmented(
-                            new ClientSyncInfoPacket { SyncOpinion = opinion.ToNet() }.Serialize());
+                    // Every game sends its opinions: the server compares each with the reference game's and tells
+                    // both players when they differ, so the host hears about a desync too.
+                    if (!TickPatch.Simulating)
+                    {
+                        var net = opinion.ToNet();
+                        // Only the clients compare trace hashes, against the reference game's
+                        if (Multiplayer.LocalServer == null && !Multiplayer.arbiterInstance)
+                            net.traceHashes = [];
+                        Multiplayer.Client.SendFragmented(new ClientSyncInfoPacket { SyncOpinion = net }.Serialize());
+                    }
                 }
                 catch (Exception e)
                 {

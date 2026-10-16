@@ -20,12 +20,32 @@ namespace Multiplayer.Client
 
         static Dictionary<string, SyncField> registeredSyncFields = new();
 
+        /// <summary>True once <see cref="PostInitHandlers"/> has given every handler its id.</summary>
+        public static bool HandlersSealed { get; private set; }
+
         public static void PostInitHandlers()
         {
             handlers.SortStable((a, b) => a.version.CompareTo(b.version));
 
             for (int i = 0; i < handlers.Count; i++)
                 handlers[i].syncId = i;
+
+            HandlersSealed = true;
+        }
+
+        /// <summary>
+        /// Registers a sync handler. After startup has numbered the handlers a new one would keep id -1, and every
+        /// game would drop its commands without a word (or, registered lazily, get different ids on different
+        /// games), so a late registration throws instead.
+        /// </summary>
+        public static void AddHandler(SyncHandler handler)
+        {
+            if (HandlersSealed)
+                throw new InvalidOperationException(
+                    $"Sync handler {handler} registered after startup; register sync methods and fields during " +
+                    "mod initialization (a static constructor or the Mod constructor), not on first use.");
+
+            handlers.Add(handler);
         }
 
         public static SyncMethod Method(Type targetType, string methodName, SyncType[] argTypes = null)
@@ -34,7 +54,7 @@ namespace Multiplayer.Client
                 ?? throw new Exception($"Couldn't find method {targetType}::{methodName}");
 
             SyncMethod handler = new SyncMethod(targetType, null, method, argTypes);
-            handlers.Add(handler);
+            AddHandler(handler);
             return handler;
         }
 
@@ -46,7 +66,7 @@ namespace Multiplayer.Client
         public static SyncField Field(Type targetType, string instancePath, string fieldName)
         {
             SyncField handler = new SyncField(targetType, instancePath + "/" + fieldName);
-            handlers.Add(handler);
+            AddHandler(handler);
             return handler;
         }
 
@@ -100,7 +120,7 @@ namespace Multiplayer.Client
             SyncDelegate handler = new SyncDelegate(method.DeclaringType, method, fields);
             methodBaseToInternalId[handler.method] = internalIdToSyncMethod.Count;
             internalIdToSyncMethod.Add(handler);
-            handlers.Add(handler);
+            AddHandler(handler);
 
             SyncUtil.PatchMethodForSync(method);
 
@@ -268,7 +288,7 @@ namespace Multiplayer.Client
             var handler = new SyncMethod(method.IsStatic ? null : method.DeclaringType, null, method, argTypes);
             methodBaseToInternalId[method] = internalIdToSyncMethod.Count;
             internalIdToSyncMethod.Add(handler);
-            handlers.Add(handler);
+            AddHandler(handler);
 
             SyncUtil.PatchMethodForSync(method);
 

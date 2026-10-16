@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
 using Multiplayer.Common;
+using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Networking.Packet;
 using Verse;
 
@@ -14,14 +15,11 @@ namespace Multiplayer.Client
         public bool isLocalClientsOpinion;
 
         public int startTick = startTick;
-        public List<uint> commandRandomStates = new();
-        public List<uint> worldRandomStates = new();
+        public List<ulong> commandRandomStates = new();
+        public List<ulong> worldRandomStates = new();
         public List<MapRandomStateData> mapStates = new();
-
-        // todo Unused for now
-        public List<int> pawnCapacityHashes = new();
-        public List<int> pawnStatHashes = new();
-        public List<int> pawnNeedHashes = new();
+        public List<FaultEvent> faults = new();
+        public List<LaneHash> lanes = new();
 
         // Serialized only after a desync to reduce bandwidth usage in regular gameplay (only the hashes are used) and
         // help with debugging in case something goes wrong.
@@ -30,39 +28,28 @@ namespace Multiplayer.Client
         public bool simulating;
         public RoundModeEnum roundMode;
 
+        // What the last CheckForDesync found that doesn't stop play.
+        public List<string> softDifferences = new();
+
         public string CheckForDesync(ClientSyncOpinion other)
         {
-            if (roundMode != other.roundMode)
-                return $"FP round mode doesn't match: {roundMode} != {other.roundMode}";
+            var reference = isLocalClientsOpinion ? other : this;
+            var checkedOne = isLocalClientsOpinion ? this : other;
+            var verdict = OpinionComparer.Compare(reference.ToNet(), checkedOne.ToNet());
+            softDifferences = verdict.soft;
 
-            if (!mapStates.Select(m => m.mapId).SequenceEqual(other.mapStates.Select(m => m.mapId)))
-                return "Map instances don't match";
+            if (verdict.hard != null)
+                return verdict.hard;
 
-            foreach (var g in
-                     from map1 in mapStates
-                     join map2 in other.mapStates on map1.mapId equals map2.mapId
-                     select (map1, map2))
-            {
-                if (!g.map1.randomStates.SequenceEqual(g.map2.randomStates))
-                    return $"Wrong random state on map {g.map1.mapId}";
-            }
-
-            if (!worldRandomStates.SequenceEqual(other.worldRandomStates))
-                return "Wrong random state for the world";
-
-            if (!commandRandomStates.SequenceEqual(other.commandRandomStates))
-                return "Random state from commands doesn't match";
-
-            // On CoreCLR (RimWorld 1.7) two games whose random states all match have recorded different traces
-            // (Desync-06: one side one Rand draw ahead in the trace list only), so there a trace mismatch alone is not
-            // a desync; the random states above still catch real ones. The traces are still collected for the report.
+            // On CoreCLR (RimWorld 1.7) the stacks in trace hashes differ between processes, so there a trace mismatch
+            // alone is not a desync; the traces are still collected for the report.
             if (Native.IsMono && !simulating && !other.simulating && desyncStackTraceHashes.Any() && other.desyncStackTraceHashes.Any() && !desyncStackTraceHashes.SequenceEqual(other.desyncStackTraceHashes))
                 return "Trace hashes don't match";
 
             return null;
         }
 
-        public List<uint> GetRandomStatesForMap(int mapId)
+        public List<ulong> GetRandomStatesForMap(int mapId)
         {
             var result = mapStates.Find(m => m.mapId == mapId);
             if (result != null) return result.randomStates;
@@ -70,37 +57,21 @@ namespace Multiplayer.Client
             return result.randomStates;
         }
 
-        public byte[] Serialize()
-        {
-            var writer = new ByteWriter();
+        private static readonly Binder<SyncOpinion> Binder = BinderOf.Identity<SyncOpinion>();
 
-            writer.WriteInt32(startTick);
-            writer.WritePrefixedUInts(commandRandomStates);
-            writer.WritePrefixedUInts(worldRandomStates);
-
-            writer.WriteInt32(mapStates.Count);
-            foreach (var map in mapStates)
-            {
-                writer.WriteInt32(map.mapId);
-                writer.WritePrefixedUInts(map.randomStates);
-            }
-
-            writer.WritePrefixedInts(desyncStackTraceHashes);
-            writer.WriteBool(simulating);
-            writer.WriteShort((short)roundMode);
-
-            return writer.ToArray();
-        }
+        public byte[] Serialize() => Binder.Serialize(ToNet());
 
         public static ClientSyncOpinion FromNet(SyncOpinion sync) => new(sync.startTick)
         {
-            commandRandomStates = sync.commandRandomStates,
-            worldRandomStates = sync.worldRandomStates,
-            mapStates = sync.mapRandomStates.Select(state => new MapRandomStateData(state.mapId)
-                { randomStates = state.randomStates }).ToList(),
-            desyncStackTraceHashes = sync.traceHashes,
+            commandRandomStates = sync.commandRandomStates ?? [],
+            worldRandomStates = sync.worldRandomStates ?? [],
+            mapStates = (sync.mapRandomStates ?? []).Select(state => new MapRandomStateData(state.mapId)
+                { randomStates = state.randomStates ?? [] }).ToList(),
+            desyncStackTraceHashes = sync.traceHashes ?? [],
             simulating = sync.simulating,
-            roundMode = sync.roundMode
+            roundMode = sync.roundMode,
+            faults = sync.faults ?? [],
+            lanes = sync.lanes ?? []
         };
 
         public SyncOpinion ToNet() => new()
@@ -112,39 +83,13 @@ namespace Multiplayer.Client
                 { mapId = state.mapId, randomStates = state.randomStates }).ToList(),
             traceHashes = desyncStackTraceHashes,
             simulating = simulating,
-            roundMode = roundMode
+            roundMode = roundMode,
+            faults = faults,
+            lanes = lanes
         };
 
-        public static ClientSyncOpinion Deserialize(ByteReader data)
-        {
-            var startTick = data.ReadInt32();
-
-            var cmds = new List<uint>(data.ReadPrefixedUInts());
-            var world = new List<uint>(data.ReadPrefixedUInts());
-
-            var maps = new List<MapRandomStateData>();
-            int mapCount = data.ReadInt32();
-            for (int i = 0; i < mapCount; i++)
-            {
-                int mapId = data.ReadInt32();
-                var mapData = new List<uint>(data.ReadPrefixedUInts());
-                maps.Add(new MapRandomStateData(mapId) { randomStates = mapData });
-            }
-
-            var traceHashes = new List<int>(data.ReadPrefixedInts());
-            var simulating = data.ReadBool();
-            var roundMode = data.ReadShort();
-
-            return new ClientSyncOpinion(startTick)
-            {
-                commandRandomStates = cmds,
-                worldRandomStates = world,
-                mapStates = maps,
-                desyncStackTraceHashes = traceHashes,
-                simulating = simulating,
-                roundMode = (RoundModeEnum)roundMode
-            };
-        }
+        public static ClientSyncOpinion Deserialize(ByteReader data) =>
+            FromNet(Binder.Deserialize(data.ReadRaw(data.Left)));
 
         public void TryMarkSimulating()
         {

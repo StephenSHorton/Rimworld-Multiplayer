@@ -64,6 +64,7 @@ public enum Packets : byte
     Server_Traces,
     Server_SetFaction,
     Server_RequestRejoin,
+    Server_SyncVerdict,
 
     // All states (Joining, Loading, Playing)
     Server_Disconnect,

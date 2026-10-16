@@ -80,8 +80,11 @@ static class ClassName_MethodName_Patch
 
 ### Time & Desync
 - `AsyncTimeComp` / `AsyncWorldTimeComp` handle time synchronization
-- `SyncCoordinator` validates world state checksums across clients
-- `DeferredStackTracing` for desync debugging
+- `SyncCoordinator` builds each game's sync opinion every 30 ticks: the full `Rand` state (seed and call count) after every map tick, world tick and command; the errors logged while simulating (the fault lane); and state checksums (lanes). `OpinionComparer` (Common) is the one comparison. A difference in random state or a HARD lane is a desync; a one-sided error or a SOFT lane is a warning and play continues.
+- Every game sends its opinions. The clients compare against the host's (or the arbiter's), and the server's `SyncReferee` compares every player's against it too and sends a `ServerSyncVerdictPacket` to that player and the host, so the host hears about a desync as well.
+- Sync handlers are numbered once at startup (`Sync.PostInitHandlers`); registering one later throws.
+- `StableDefHash` (an early patch) makes `Def.GetHashCode` the same on every machine; CoreCLR randomizes `string.GetHashCode` per process, and vanilla seeds random numbers from def hashes. A def built in code must call `ResolveDefNameHash` after its `defName` is set; startup logs an error for any two defs of a type that share a hash.
+- `DeferredStackTracing` for desync debugging; trace hashes are only compared on Mono, and `desyncTraces` is off by default.
 
 ### Multi-faction
 - `FactionContext` tracks current faction context for determinism

@@ -143,11 +143,19 @@ public class PacketTest
             ],
             traceHashes = [999, 888, 777],
             simulating = true,
-            roundMode = RoundModeEnum.ToNearest
+            roundMode = RoundModeEnum.ToNearest,
+            faults = [new FaultEvent { tick = 12346, mapId = 1, signature = 42, text = "Exception ticking #" }],
+            lanes = [new LaneHash { tick = 12350, mapId = -1, lane = "factions", hash = 0xDEADBEEFCAFEUL, hard = true }]
         };
 
         yield return new ClientSyncInfoPacket { SyncOpinion = sampleOpinion };
         yield return new ServerSyncInfoPacket { SyncOpinion = sampleOpinion };
+
+        yield return new ServerSyncVerdictPacket
+        {
+            playerId = 2, username = "Blake", tick = 12345, hard = true, lane = "rng", mapId = 1,
+            message = "Wrong random state on map 1: entry 3: 10 vs 11 random calls"
+        };
 
         yield return new ClientSetFactionPacket(123, 123);
         yield return new ServerSetFactionPacket(123, 123);

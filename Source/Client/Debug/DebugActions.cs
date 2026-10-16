@@ -217,12 +217,16 @@ namespace Multiplayer.Client
         [DebugAction(MultiplayerLocalCategory, name = "Trigger desync", allowedGameStates = AllowedGameStates.Playing)]
         public static void TriggerDesync()
         {
+            // Changes the world's seed but not its call count, which the old count-only check couldn't see
+            Multiplayer.game.asyncWorldTimeComp.randState++;
+
+            // The raw tracer reads Mono's frames; there is none on CoreCLR (RimWorld 1.7)
+            if (!Native.IsMono) return;
+
             var logItem = StackTraceLogItemRaw.GetFromPool();
             var trace = logItem.raw;
             int hash = 0;
             int depth = DeferredStackTracingImpl.TraceImpl(trace, ref hash);
-
-            Multiplayer.game.asyncWorldTimeComp.randState++;
             Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash);
         }
 

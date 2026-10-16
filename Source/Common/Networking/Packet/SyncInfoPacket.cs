@@ -44,19 +44,24 @@ public record struct ServerSyncInfoPacket : IPacket
 public record struct SyncOpinion : IPacketBufferable
 {
     public int startTick;
-    public List<uint> commandRandomStates;
-    public List<uint> worldRandomStates;
+    // Full Verse.Rand states (seed in the low 32 bits, call count in the high 32), not just the call count.
+    public List<ulong> commandRandomStates;
+    public List<ulong> worldRandomStates;
     public List<MapRandomState> mapRandomStates;
     public List<int> traceHashes;
     public bool simulating;
     public RoundModeEnum roundMode;
+    // Errors logged while simulating, in order. One side only means one game ran a code path the other didn't.
+    public List<FaultEvent> faults;
+    // State checksums: each names a part of the game (a map's terrain, the world's factions, ...).
+    public List<LaneHash> lanes;
 
     public void Bind(PacketBuffer buf)
     {
         buf.Bind(ref startTick);
 
-        buf.Bind(ref commandRandomStates, BinderOf.UInt());
-        buf.Bind(ref worldRandomStates, BinderOf.UInt());
+        buf.Bind(ref commandRandomStates, BinderOf.ULong());
+        buf.Bind(ref worldRandomStates, BinderOf.ULong());
         buf.Bind(ref mapRandomStates, BinderOf.Identity<MapRandomState>());
         // Max 2M trace hashes. For some big saves, the trace hashes can reach ~600k entries, so this includes
         // some leeway.
@@ -64,17 +69,62 @@ public record struct SyncOpinion : IPacketBufferable
 
         buf.Bind(ref simulating);
         buf.BindEnum(ref roundMode);
+
+        // Older code builds opinions without these; send them as empty
+        faults ??= [];
+        lanes ??= [];
+        buf.Bind(ref faults, BinderOf.Identity<FaultEvent>());
+        buf.Bind(ref lanes, BinderOf.Identity<LaneHash>());
     }
 }
 
 public record struct MapRandomState : IPacketBufferable
 {
     public int mapId;
-    public List<uint> randomStates;
+    public List<ulong> randomStates;
 
     public void Bind(PacketBuffer buf)
     {
         buf.Bind(ref mapId);
-        buf.Bind(ref randomStates, BinderOf.UInt());
+        buf.Bind(ref randomStates, BinderOf.ULong());
+    }
+}
+
+/// <summary>An error logged during simulation. The signature hashes the message with numbers and names taken out.</summary>
+public record struct FaultEvent : IPacketBufferable
+{
+    public int tick;
+    public int mapId;
+    public int signature;
+    public string text;
+
+    public void Bind(PacketBuffer buf)
+    {
+        buf.Bind(ref tick);
+        buf.Bind(ref mapId);
+        buf.Bind(ref signature);
+        buf.Bind(ref text, maxLength: 512);
+    }
+}
+
+/// <summary>
+/// One state checksum. <see cref="lane"/> names what it covers ("terrain", "pawns", ...), <see cref="mapId"/> is
+/// -1 for the world. A HARD lane that differs is a desync; a SOFT one is reported but play continues.
+/// </summary>
+public record struct LaneHash : IPacketBufferable
+{
+    public int tick;
+    public int mapId;
+    public string lane;
+    public ulong hash;
+    public bool hard;
+
+    public void Bind(PacketBuffer buf)
+    {
+        buf.Bind(ref tick);
+        buf.Bind(ref mapId);
+        buf.Bind(ref lane, maxLength: 64);
+        buf.Bind(ref hash);
+        buf.Bind(ref hard);
     }
 }
