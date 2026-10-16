@@ -53,7 +53,10 @@ namespace Multiplayer.Client
             if (!commandRandomStates.SequenceEqual(other.commandRandomStates))
                 return "Random state from commands doesn't match";
 
-            if (!simulating && !other.simulating && desyncStackTraceHashes.Any() && other.desyncStackTraceHashes.Any() && !desyncStackTraceHashes.SequenceEqual(other.desyncStackTraceHashes))
+            // On CoreCLR (RimWorld 1.7) two games whose random states all match have recorded different traces
+            // (Desync-06: one side one Rand draw ahead in the trace list only), so there a trace mismatch alone is not
+            // a desync; the random states above still catch real ones. The traces are still collected for the report.
+            if (Native.IsMono && !simulating && !other.simulating && desyncStackTraceHashes.Any() && other.desyncStackTraceHashes.Any() && !desyncStackTraceHashes.SequenceEqual(other.desyncStackTraceHashes))
                 return "Trace hashes don't match";
 
             return null;
