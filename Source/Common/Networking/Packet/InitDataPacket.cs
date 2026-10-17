@@ -25,6 +25,7 @@ public record struct ClientInitDataPacket : IPacket
     public RoundModeEnum modCtorRoundMode;
     public RoundModeEnum staticCtorRoundMode;
     public KeyedDefInfo[] defInfos;
+    public Multiplayer.Common.Desyncs.FingerprintRow[] fingerprint;
     public bool includeConfigs;
     public byte[] rawMods;
 
@@ -42,6 +43,8 @@ public record struct ClientInitDataPacket : IPacket
         buf.BindEnum(ref modCtorRoundMode);
         buf.BindEnum(ref staticCtorRoundMode);
         buf.Bind(ref defInfos, BinderOf.Identity<KeyedDefInfo>());
+        fingerprint ??= [];
+        buf.Bind(ref fingerprint, BinderOf.Identity<Multiplayer.Common.Desyncs.FingerprintRow>(), maxLength: Multiplayer.Common.Desyncs.Fingerprint.MaxRows);
         buf.Bind(ref includeConfigs);
         buf.BindRemaining(ref rawMods);
     }

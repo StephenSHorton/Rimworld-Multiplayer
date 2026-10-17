@@ -17,4 +17,7 @@ public enum CommandType : byte
     MapTimeSpeed,
     Designator,
     PlayerCount,
+
+    // Any scope: one part of a command too big for one packet (see CommandChunks)
+    Chunk,
 }

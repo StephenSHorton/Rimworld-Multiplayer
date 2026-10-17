@@ -11,7 +11,8 @@ public record ServerInitData(
     HashSet<int> DebugOnlySyncCmds,
     HashSet<int> HostOnlySyncCmds,
     (RoundModeEnum, RoundModeEnum) RoundModes,
-    Dictionary<string, DefInfo> DefInfos
+    Dictionary<string, DefInfo> DefInfos,
+    Multiplayer.Common.Desyncs.FingerprintRow[]? Fingerprint = null
 )
 {
     public static ServerInitData FromNet(ClientInitDataPacket packet) => new(
@@ -20,5 +21,6 @@ public record ServerInitData(
         packet.hostOnlySyncCmds.ToHashSet(),
         (packet.modCtorRoundMode, packet.staticCtorRoundMode),
         packet.defInfos.ToDictionary(info => info.name,
-            info => new DefInfo { count = info.count, hash = info.hash }));
+            info => new DefInfo { count = info.count, hash = info.hash }),
+        packet.fingerprint ?? []);
 }

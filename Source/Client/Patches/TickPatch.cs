@@ -73,7 +73,11 @@ namespace Multiplayer.Client
             // Slow down when few ticksBehind to accumulate a buffer
             // Try to speed up when many ticksBehind
             // Else run at the speed from the server
-            float stpt = ticksBehind <= 3 ? serverTimePerTick * 1.2f : ticksBehind >= 7 ? serverTimePerTick * 0.8f : serverTimePerTick;
+            // The host's server is in the same process, with no network jitter to buffer against, so the host stays
+            // close to the server's timer and its own commands come back within a tick or two (host-led clock)
+            bool host = Multiplayer.LocalServer != null;
+            int bufferLow = host ? 0 : 3, bufferHigh = host ? 3 : 7;
+            float stpt = ticksBehind <= bufferLow ? serverTimePerTick * 1.2f : ticksBehind >= bufferHigh ? serverTimePerTick * 0.8f : serverTimePerTick;
 
             if (Multiplayer.IsReplay)
                 stpt = StandardTimePerFrame * ReplayMultiplier();
@@ -93,7 +97,8 @@ namespace Multiplayer.Client
             if (realTime > 0)
                 realTime = 0;
 
-            if (Time.time - frameTimeSentAt > 32f/1000f)
+            // Only while playing: a rejoin requested this frame already put the server side in its loading state
+            if (Time.time - frameTimeSentAt > 32f/1000f && Multiplayer.Client.State == ConnectionStateEnum.ClientPlaying)
             {
                 Multiplayer.Client.Send(new ClientFrameTimePacket(avgFrameTime));
                 frameTimeSentAt = Time.time;
@@ -165,6 +170,8 @@ namespace Multiplayer.Client
             Shader.SetGlobalFloat(ShaderPropertyIDs.GameSeconds, Find.CurrentMap.AsyncTime().mapTicks.TicksToSeconds());
         }
 
+        private static readonly CommandChunks.Assembler chunks = new();
+
         private static bool RunCmds()
         {
             int curTimer = Timer;
@@ -174,6 +181,10 @@ namespace Multiplayer.Client
                 while (tickable.Cmds.Count > 0 && tickable.Cmds.Peek().ticks == curTimer)
                 {
                     ScheduledCommand cmd = tickable.Cmds.Dequeue();
+
+                    // The parts of a big command run as one command when the last part arrives
+                    if (cmd.type == CommandType.Chunk && !chunks.TryAssemble(cmd, out cmd))
+                        continue;
 
                     // Minimal code impact fix for #733. Having all the commands be added to a single queue gets rid of
                     // the out-of-order execution problem. With a proper fix, this can be reverted to tickable.ExecuteCmd
@@ -193,6 +204,7 @@ namespace Multiplayer.Client
         public static void DoUpdate(out bool worked)
         {
             worked = false;
+            SyncVerdicts.Update();
             updateTimer.Restart();
 
             while (Simulating ? (Timer < simulating.target && updateTimer.ElapsedMilliseconds < 25) : (ticksToRun > 0))

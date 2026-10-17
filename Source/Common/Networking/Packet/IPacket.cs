@@ -305,8 +305,7 @@ public sealed class PacketWriter(ByteWriter writer) : PacketBuffer(true)
 
     public override void Bind(ref string obj, int maxLength = DefaultMaxLength)
     {
-        if (obj != null && obj.Length > maxLength) throw new WriterException($"Too long string ({obj.Length}>{maxLength})");
-        writer.WriteString(obj);
+        writer.WriteString(obj, maxLength);
     }
 
     public override void BindWith<T>(ref T obj, Action<T> write, Func<T> read) => write(obj);

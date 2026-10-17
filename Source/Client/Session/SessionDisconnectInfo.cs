@@ -88,6 +88,16 @@ public struct SessionDisconnectInfo
             disconnectInfo.specialButtonAction = () => session.Reconnect(Multiplayer.username);
         }
 
+        if (reason == MpDisconnectReason.Fingerprint)
+        {
+            disconnectInfo.titleTranslated = "Your game doesn't match the host's";
+            disconnectInfo.descTranslated =
+                "Something your game computed differs from the host's game, so the two would drift apart after you joined:\n\n" +
+                reader.ReadString(1 << 16) +
+                "\n\nRestart RimWorld and make sure both players have the same mods, mod settings and Multiplayer version.";
+            disconnectInfo.wideWindow = true;
+        }
+
         if (reason == MpDisconnectReason.UsernameLength)
         {
             titleKey = "MpInvalidUsernameLength";

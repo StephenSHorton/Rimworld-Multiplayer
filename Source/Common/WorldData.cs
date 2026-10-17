@@ -38,6 +38,9 @@ public class WorldData
 
     public bool TryStartJoinPointCreation(bool force = false, ServerPlayer? sourcePlayer = null)
     {
+        // A join point reloads every game, which ends a debug freeze
+        Server.holdTimerAt = int.MaxValue;
+
         int currentTick = CurrentJoinPointTick;
 
         if (!force && lastJoinPointAtTick >= 0 && currentTick - lastJoinPointAtTick < 30)

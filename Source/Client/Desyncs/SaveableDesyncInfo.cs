@@ -43,6 +43,11 @@ public class SaveableDesyncInfo(
             using var zip = MpZipFile.Open(Path.Combine(Multiplayer.DesyncsDir, desyncFilePath + ".zip"), ZipArchiveMode.Create);
 
             zip.AddEntry("desync_info", GetDesyncDetails());
+            zip.AddEntry("lanes.txt", FlightRecorder.CompareLanes(local.ToNet(), remote.ToNet()));
+            zip.AddEntry("local_flight_recorder.txt", coordinator.recorder.Dump());
+            zip.AddEntry("entity_diffs.txt", LeafRequests.recentDiffs.Count > 0
+                ? string.Join("\n\n", LeafRequests.recentDiffs)
+                : "No entity diffs: no lane differed in time for the server to compare entities");
 
             zip.AddEntry("local_traces.txt", GetLocalTraces());
             zip.AddEntry("host_traces.txt", hostInfo?.Traces ?? "No host traces");
@@ -151,7 +156,8 @@ public class SaveableDesyncInfo(
         //Find all current existing desync zips
         var files = new DirectoryInfo(Multiplayer.DesyncsDir).GetFiles($"{FilePrefix}*{FileExtension}");
 
-        const int MaxFiles = 10;
+        // Kept long enough to compare a whole evening of desyncs
+        const int MaxFiles = 40;
 
         //Delete any pushing us over the limit, and reserve room for one more
         if (files.Length > MaxFiles - 1)

@@ -171,6 +171,14 @@ namespace Multiplayer.Client
             OnMainThread.Enqueue(() => SyncVerdicts.Show(packet));
 
         [TypedPacketHandler]
+        public void HandleLeafRequest(ServerLeafRequestPacket packet) =>
+            OnMainThread.Enqueue(() => Desyncs.LeafRequests.Add(packet));
+
+        [TypedPacketHandler]
+        public void HandleLeafDiff(ServerLeafDiffPacket packet) =>
+            OnMainThread.Enqueue(() => Desyncs.LeafRequests.OnDiff(packet));
+
+        [TypedPacketHandler]
         public void HandleDesyncCheck(ServerSyncInfoPacket packet) =>
             Multiplayer.game?.sync.AddClientOpinionAndCheckDesync(ClientSyncOpinion.FromNet(packet.SyncOpinion));
 
@@ -202,6 +210,7 @@ namespace Multiplayer.Client
                 var jittedMethods = GZipStream.UncompressString(packet.rawJittedMethods);
                 var hostInfo = new SaveableDesyncInfo.HostInfo(traces, jittedMethods);
                 Find.WindowStack.WindowOfType<DesyncedWindow>()?.HandleHostDesyncInfo(hostInfo);
+                Find.WindowStack.WindowOfType<Desyncs.DesyncOverlayWindow>()?.HandleHostDesyncInfo(hostInfo);
             }
         }
 

@@ -276,10 +276,18 @@ public class AsyncWorldTimeComp : IExposable, ITickable
 
     private static void CreateJoinPointAndSendIfHost()
     {
+        // Self-check: the same lanes before saving and after reloading, or some state isn't saved
+        var (lanesBefore, leavesBefore) = TickPatch.Simulating || Multiplayer.IsReplay
+            ? (null, null)
+            : Desyncs.JoinFingerprint.BeforeJoinPoint();
+
         Multiplayer.session.dataSnapshot = SaveLoad.SaveReloadAndCreateSnapshot(
             Multiplayer.GameComp.multifaction,
             ReloadOptimizationMode.ForJoinPointSnapshot
         );
+
+        if (!TickPatch.Simulating && !Multiplayer.IsReplay)
+            Desyncs.JoinFingerprint.AfterJoinPoint(lanesBefore, leavesBefore);
 
         if (!TickPatch.Simulating && !Multiplayer.IsReplay)
         {

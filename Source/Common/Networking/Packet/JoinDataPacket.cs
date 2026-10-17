@@ -38,12 +38,15 @@ public record struct ClientJoinDataPacket : IPacket
     public RoundModeEnum modCtorRoundMode;
     public RoundModeEnum staticCtorRoundMode;
     public KeyedDefInfo[] defInfos;
+    public Multiplayer.Common.Desyncs.FingerprintRow[] fingerprint;
 
     public void Bind(PacketBuffer buf)
     {
         buf.BindEnum(ref modCtorRoundMode);
         buf.BindEnum(ref staticCtorRoundMode);
         buf.Bind(ref defInfos, BinderOf.Identity<KeyedDefInfo>(), maxLength: 512);
+        fingerprint ??= [];
+        buf.Bind(ref fingerprint, BinderOf.Identity<Multiplayer.Common.Desyncs.FingerprintRow>(), maxLength: Multiplayer.Common.Desyncs.Fingerprint.MaxRows);
     }
 }
 

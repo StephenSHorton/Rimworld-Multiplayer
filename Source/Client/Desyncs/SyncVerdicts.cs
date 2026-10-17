@@ -1,4 +1,7 @@
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using Multiplayer.Common;
 using Multiplayer.Client.Util;
 using Multiplayer.Common.Networking.Packet;
 using RimWorld;
@@ -19,6 +22,57 @@ namespace Multiplayer.Client
 
         public static int SoftCount { get; private set; }
 
+        // Host: the speeds from before the desync pause, put back once the player has re-synced
+        // By name: a player whose game restarts to re-sync comes back with a new id
+        private static string waitingFor;
+        private static bool sawThemAway;
+        private static readonly Stopwatch waitingSince = new();
+        private const long GiveUpAfterMs = 5 * 60_000;
+        private static TimeSpeed worldSpeed;
+        private static readonly Dictionary<int, TimeSpeed> mapSpeeds = new();
+
+        private static void RememberSpeedsUntilBack(int playerId)
+        {
+            if (Multiplayer.LocalServer == null || waitingFor != null || Multiplayer.game == null) return;
+
+            waitingFor = Multiplayer.session.players.FirstOrDefault(p => p.id == playerId)?.username;
+            sawThemAway = false;
+            waitingSince.Restart();
+            worldSpeed = Multiplayer.AsyncWorldTime.DesiredTimeSpeed;
+            mapSpeeds.Clear();
+            foreach (var map in Find.Maps)
+                mapSpeeds[map.uniqueID] = map.AsyncTime().DesiredTimeSpeed;
+        }
+
+        /// <summary>Every frame: once the re-syncing player plays again, unpause what the desync paused.</summary>
+        public static void Update()
+        {
+            if (waitingFor == null) return;
+            if (Multiplayer.Client == null || Multiplayer.game == null || waitingSince.ElapsedMilliseconds > GiveUpAfterMs)
+            {
+                waitingFor = null;
+                return;
+            }
+
+            var player = Multiplayer.session.players.FirstOrDefault(p => p.username == waitingFor);
+            if (player == null || player.status != PlayerStatus.Playing)
+            {
+                sawThemAway = true;
+                return;
+            }
+
+            if (!sawThemAway) return;
+            waitingFor = null;
+
+            if (worldSpeed != TimeSpeed.Paused && Multiplayer.AsyncWorldTime.DesiredTimeSpeed == TimeSpeed.Paused)
+                AsyncTime.MpTimeControls.SendTimeChange(Multiplayer.AsyncWorldTime, worldSpeed);
+            foreach (var map in Find.Maps)
+                if (mapSpeeds.TryGetValue(map.uniqueID, out var speed) && speed != TimeSpeed.Paused && map.AsyncTime().DesiredTimeSpeed == TimeSpeed.Paused)
+                    AsyncTime.MpTimeControls.SendTimeChange(map.AsyncTime(), speed);
+
+            Messages.Message($"{player.username} is back in sync", MessageTypeDefOf.PositiveEvent, false);
+        }
+
         public static void Show(ServerSyncVerdictPacket packet)
         {
             bool aboutMe = packet.playerId == Multiplayer.session?.playerId;
@@ -26,10 +80,13 @@ namespace Multiplayer.Client
 
             if (packet.hard)
             {
-                MpLog.Error($"Sync referee: {who} differs from the host's at tick {packet.tick}: {packet.message}");
+                MpLog.Warn($"Sync referee: {who} differs from the host's at tick {packet.tick}: {packet.message}");
                 if (!aboutMe)
-                    Messages.Message($"{who} no longer matches yours (tick {packet.tick}): {packet.message}",
+                {
+                    Messages.Message($"{who} no longer matches yours (tick {packet.tick}): {packet.message}. They re-sync on their own.",
                         MessageTypeDefOf.NegativeEvent, false);
+                    RememberSpeedsUntilBack(packet.playerId);
+                }
                 return;
             }
 

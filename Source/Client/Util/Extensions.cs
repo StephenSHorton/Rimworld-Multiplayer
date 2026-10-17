@@ -75,8 +75,18 @@ namespace Multiplayer.Client
             return null;
         }
 
-        public static void SendCommand(this ConnectionBase conn, CommandType type, int mapId, byte[] data) =>
-            conn.Send(new ClientCommandPacket(type, mapId, data));
+        public static void SendCommand(this ConnectionBase conn, CommandType type, int mapId, byte[] data)
+        {
+            if (data.Length <= CommandChunks.MaxSingleCommand)
+            {
+                conn.Send(new ClientCommandPacket(type, mapId, data));
+                return;
+            }
+
+            // Too big for one command packet: compressed, in parts, put back together before it runs on every game
+            foreach (var chunk in CommandChunks.Split(type, data, CommandChunks.NextGroupId()))
+                conn.Send(new ClientCommandPacket(CommandType.Chunk, mapId, chunk));
+        }
 
         public static void SendCommand(this ConnectionBase conn, CommandType type, int mapId, params object[] data) =>
             SendCommand(conn, type, mapId, ByteWriter.GetBytes(data));

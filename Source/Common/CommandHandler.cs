@@ -20,13 +20,19 @@ namespace Multiplayer.Common
             // policy
             if (sourcePlayer != null)
             {
+                // A chunk carries its command's type and sync id, so the same rules apply to it
+                var policyType = cmdType;
+                var syncId = cmdType == CommandType.Sync && data.Length >= 4 ? BitConverter.ToInt32(data, 0) : -1;
+                if (cmdType == CommandType.Chunk && !CommandChunks.TryReadHeader(data, out policyType, out syncId))
+                    return;
+
                 bool debugCmd =
-                    cmdType == CommandType.DebugTools ||
-                    cmdType == CommandType.Sync && server.InitData!.DebugOnlySyncCmds.Contains(BitConverter.ToInt32(data, 0));
+                    policyType == CommandType.DebugTools ||
+                    policyType == CommandType.Sync && server.InitData!.DebugOnlySyncCmds.Contains(syncId);
                 if (debugCmd && !CanUseDevMode(sourcePlayer))
                     return;
 
-                bool hostOnly = cmdType == CommandType.Sync && server.InitData!.HostOnlySyncCmds.Contains(BitConverter.ToInt32(data, 0));
+                bool hostOnly = policyType == CommandType.Sync && server.InitData!.HostOnlySyncCmds.Contains(syncId);
                 if (hostOnly && !sourcePlayer.IsHost)
                     return;
 

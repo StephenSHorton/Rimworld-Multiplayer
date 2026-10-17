@@ -14,6 +14,8 @@ public class OpinionVerdict
     public string? hardLane;
     public int hardMapId = -1;
     public readonly List<string> soft = [];
+    // Every lane that differs, hard or soft
+    public readonly List<(int mapId, string lane)> laneDiffs = [];
 
     public bool Clean => hard == null && soft.Count == 0;
 }
@@ -89,6 +91,7 @@ public static class OpinionComparer
 
             if (theirs.hash == lane.hash) continue;
 
+            verdict.laneDiffs.Add((lane.mapId, lane.lane));
             var where = lane.mapId == -1 ? "world" : $"map {lane.mapId}";
             var msg = $"{where} / {lane.lane} lane differs at tick {lane.tick}";
             if (lane.hard && theirs.hard && verdict.hard == null)

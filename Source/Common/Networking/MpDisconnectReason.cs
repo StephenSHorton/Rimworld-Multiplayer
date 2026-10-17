@@ -20,7 +20,8 @@
         ServerStarting,
         BadGamePassword,
         StateException,
-        BootstrapCompleted
+        BootstrapCompleted,
+        Fingerprint
     }
 
 }

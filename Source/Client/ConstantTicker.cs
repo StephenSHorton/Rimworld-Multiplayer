@@ -111,9 +111,14 @@ namespace Multiplayer.Client
 
         private static void TickSyncCoordinator()
         {
+            Desyncs.LeafRequests.Tick(TickPatch.Timer);
+
             if (TickPatch.Timer % 30 == 0)
             {
                 var sync = Multiplayer.game.sync;
+                if (TickPatch.Timer % SyncLanes.CheckpointInterval == 0)
+                    sync.TryAddLanes(TickPatch.Timer);
+
                 var opinion = sync.FinishLocalOpinion();
                 if (opinion == null) return;
 

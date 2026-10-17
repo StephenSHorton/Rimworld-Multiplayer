@@ -27,6 +27,9 @@ namespace Multiplayer.Client
 
         private ClientSyncOpinion currentOpinion;
 
+        public readonly FlightRecorder recorder = new();
+        private readonly Dictionary<string, int> softSeen = new();
+
         public int lastValidTick = -1;
         public bool arbiterWasPlayingOnLastValidTick;
 
@@ -38,7 +41,17 @@ namespace Multiplayer.Client
             currentOpinion.roundMode = RoundMode.GetCurrentRoundMode();
             var opinion = currentOpinion;
             currentOpinion = null;
+            recorder.Record(opinion);
             return opinion;
+        }
+
+        /// <summary>Adds every state lane at this tick to the opinion being built (see <see cref="SyncLanes"/>).</summary>
+        public void TryAddLanes(int tick)
+        {
+            if (!ShouldCollect) return;
+            OpinionInBuilding.TryMarkSimulating();
+            SyncLanes.Compute(tick, OpinionInBuilding.lanes);
+            SyncLanes.DumpLeavesIfFlagged(tick);
         }
 
         /// <summary>
@@ -100,7 +113,13 @@ namespace Multiplayer.Client
             else
             {
                 foreach (var soft in oldOpinion.softDifferences.Concat(newOpinion.softDifferences).Distinct())
-                    MpLog.Warn($"Sync check at tick {oldOpinion.startTick} (play continues): {soft}");
+                {
+                    var key = FaultSignature.Normalize(soft);
+                    softSeen.TryGetValue(key, out var seen);
+                    softSeen[key] = seen + 1;
+                    if (seen % 50 == 0)
+                        MpLog.Warn($"Sync check at tick {oldOpinion.startTick} (play continues): {soft}" + (seen > 0 ? $" (seen {seen + 1} times)" : ""));
+                }
 
                 // Update fields
                 lastValidTick = oldOpinion.startTick;
@@ -132,11 +151,7 @@ namespace Multiplayer.Client
             var diffAt = FindTraceHashesDiffTick(local, remote, out var found);
             Multiplayer.Client.Send(new ClientDesyncedPacket(local.startTick, diffAt));
 
-            MpUI.ClearWindowStack();
-            Find.WindowStack.Add(new DesyncedWindow(
-                desyncMessage,
-                new SaveableDesyncInfo(this, local, remote, diffAt, found, desyncMessage)
-            ));
+            DesyncRecovery.OnDesync(desyncMessage, new SaveableDesyncInfo(this, local, remote, diffAt, found, desyncMessage));
         }
 
         private static int FindTraceHashesDiffTick(ClientSyncOpinion local, ClientSyncOpinion remote, out bool found)

@@ -230,6 +230,15 @@ namespace Multiplayer.Client
             Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash);
         }
 
+        [DebugAction(MultiplayerLocalCategory, name = "Trigger state desync (terrain)", allowedGameStates = AllowedGameStates.PlayingOnMap)]
+        public static void TriggerStateDesync()
+        {
+            // Changes one terrain cell in this game only, without drawing a random number: only the terrain lane can
+            // see it
+            var grid = Find.CurrentMap.terrainGrid.topGrid;
+            grid[0] = grid[0] == TerrainDefOf.Soil ? TerrainDefOf.Sand : TerrainDefOf.Soil;
+        }
+
         [DebugAction(MultiplayerLocalCategory, name = "Show desync window", allowedGameStates = AllowedGameStates.Playing)]
         public static void ShowDesync()
         {

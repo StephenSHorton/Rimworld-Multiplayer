@@ -210,6 +210,13 @@ namespace Multiplayer.Common
         }
 
         [TypedPacketHandler]
+        public void HandleLeaves(ClientLeavesPacket packet) => Server.referee.OnLeaves(Player, packet);
+
+        [TypedPacketHandler]
+        public void HandleFingerprint(Desyncs.ClientFingerprintPacket packet) =>
+            Server.referee.OnFingerprint(Player, packet.rows, Server.ArbiterPlaying ? Player.IsArbiter : Player.IsHost);
+
+        [TypedPacketHandler]
         public void HandleFreeze(ClientFreezePacket packet)
         {
             Player.frozen = packet.freeze;

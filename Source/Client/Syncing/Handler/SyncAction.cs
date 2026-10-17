@@ -156,7 +156,7 @@ namespace Multiplayer.Client
 
         public override string ToString()
         {
-            return "SyncAction";
+            return $"SyncAction {func.Method.MethodDesc()}";
         }
     }
 

@@ -257,6 +257,20 @@ namespace Multiplayer.Client
             );
             entry = entry.Down(30);
 
+            // Debug freeze, for finding desyncs in test sessions
+            if (Prefs.DevMode)
+            {
+                MpUI.CheckboxLabeledWithTipNoHighlight(
+                    entry.Width(CheckboxWidth),
+                    "Desync debug freeze:  ",
+                    "When two games first differ, hold every game at one tick and save each game's full state there " +
+                    "(MpDesyncs/state-*.xml.gz), so the two can be compared. A join point lets the games run again.",
+                    ref serverSettings.desyncDebugFreeze,
+                    placeTextNearCheckbox: true
+                );
+                entry = entry.Down(30);
+            }
+
             // Arbiter
             if (MpVersion.IsDebug) {
                 TooltipHandler.TipRegion(entry.Width(CheckboxWidth), "MpArbiterDesc".Translate());
@@ -510,6 +524,10 @@ namespace Multiplayer.Client
                 localServer.netManagers.ForEach(man => man.Stop());
                 return false;
             }
+
+            // Host-led clock: the server's timer follows this game's (see MultiplayerServer.hostTimer). While the host
+            // isn't in a game yet the server isn't held back.
+            localServer.hostTimer = () => Multiplayer.Client != null && Multiplayer.game != null ? TickPatch.Timer : int.MaxValue;
 
             Multiplayer.LocalServer = localServer;
             return true;

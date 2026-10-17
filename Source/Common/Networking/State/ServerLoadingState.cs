@@ -10,6 +10,12 @@ public class ServerLoadingState : AsyncConnectionState
     {
     }
 
+    // A frame time sent just before the client asked to rejoin; nothing to do with it while loading
+    [TypedPacketHandler]
+    public void HandleFrameTime(ClientFrameTimePacket packet)
+    {
+    }
+
     [TypedPacketHandler]
     public void HandleClientKeepAlive(ClientKeepAlivePacket packet)
     {

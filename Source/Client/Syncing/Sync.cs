@@ -25,7 +25,14 @@ namespace Multiplayer.Client
 
         public static void PostInitHandlers()
         {
-            handlers.SortStable((a, b) => a.version.CompareTo(b.version));
+            // Ids come from a stable key (the handler's method or field), not the order mods happened to register
+            // them in; registration order only breaks ties between handlers with the same key
+            var keys = handlers.ToDictionary(h => h, h => h.ToString());
+            handlers.SortStable((a, b) =>
+            {
+                var byVersion = a.version.CompareTo(b.version);
+                return byVersion != 0 ? byVersion : string.CompareOrdinal(keys[a], keys[b]);
+            });
 
             for (int i = 0; i < handlers.Count; i++)
                 handlers[i].syncId = i;

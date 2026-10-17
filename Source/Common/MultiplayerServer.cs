@@ -47,6 +47,20 @@ namespace Multiplayer.Common
 
         public string? hostUsername;
         public int gameTimer;
+        // The timer stops here (debug freeze, see SyncReferee); int.MaxValue when not held
+        public int holdTimerAt = int.MaxValue;
+
+        /// <summary>
+        /// Host-led clock: the hosting game's timer, read from the server thread (it's in the same process). The
+        /// server's timer, which every other game runs up to, never gets more than <see cref="HostMaxLead"/> ticks
+        /// ahead of it, so no game runs ahead of the host and the host's own commands land within a few ticks of
+        /// where the host is. Null for a standalone server.
+        /// </summary>
+        public Func<int>? hostTimer;
+        public const int HostMaxLead = 6;
+
+        // Set when something is queued for the server thread, so a host command is stamped and sent right away
+        private readonly AutoResetEvent queued = new(false);
         public int startingTimer;
         public int workTicks;
         public ActionQueue queue = new();
@@ -124,6 +138,8 @@ namespace Multiplayer.Common
                         playersBehind.Clear();
                         playersBehind.AddRange(PlayingIngamePlayers.Where(p => p.ExtrapolatedTicksBehind > 90));
                         if (!freezeManager.Frozen &&
+                            gameTimer < holdTimerAt &&
+                            (hostTimer == null || gameTimer - hostTimer() < HostMaxLead) &&
                             PlayingPlayers.Any(p => p.ExtrapolatedTicksBehind < 40) &&
                             !playersBehind.Any())
                         {
@@ -155,8 +171,14 @@ namespace Multiplayer.Common
                     // On Windows, the clock ticks 64 times a second and sleep durations too close to a multiple of 15.625ms
                     // tend to be rounded up, so we sleep for a bit less
                     int sleepFor = (int)Math.Floor((1000d / NetTicksPerSecond - tickTime.ElapsedMillisDouble()) * 0.9f);
-                    if (sleepFor > 0)
-                        Thread.Sleep(sleepFor);
+
+                    // Wake for queued work (a host command) without running a whole net tick early
+                    while (sleepFor > 0)
+                    {
+                        if (queued.WaitOne(sleepFor))
+                            queue.RunQueue(ServerLog.Error);
+                        sleepFor = (int)Math.Floor((1000d / NetTicksPerSecond - tickTime.ElapsedMillisDouble()) * 0.9f);
+                    }
                 }
                 catch (Exception e)
                 {
@@ -215,6 +237,7 @@ namespace Multiplayer.Common
         public void Enqueue(Action action)
         {
             queue.Enqueue(action);
+            queued.Set();
         }
 
         public void SendToPlaying<T>(T packet, bool reliable = true, ServerPlayer? excluding = null) where T : IPacket

@@ -43,8 +43,18 @@ namespace Multiplayer.Client
 
             // On CoreCLR (RimWorld 1.7) the stacks in trace hashes differ between processes, so there a trace mismatch
             // alone is not a desync; the traces are still collected for the report.
-            if (Native.IsMono && !simulating && !other.simulating && desyncStackTraceHashes.Any() && other.desyncStackTraceHashes.Any() && !desyncStackTraceHashes.SequenceEqual(other.desyncStackTraceHashes))
-                return "Trace hashes don't match";
+            if (!simulating && !other.simulating && desyncStackTraceHashes.Any() && other.desyncStackTraceHashes.Any() && !desyncStackTraceHashes.SequenceEqual(other.desyncStackTraceHashes))
+            {
+                if (Native.IsMono)
+                    return "Trace hashes don't match";
+
+                // CoreCLR traces hash only the tick and the random state, which is stable between processes but
+                // also sees Rand calls that leave the state alone (ValueSeeded): one side running a seeded roll the
+                // other didn't (Desync-06, hours before Desync-07). Reported, not a desync.
+                var at = Enumerable.Range(0, Math.Min(desyncStackTraceHashes.Count, other.desyncStackTraceHashes.Count))
+                    .FirstOrDefault(i => desyncStackTraceHashes[i] != other.desyncStackTraceHashes[i]);
+                softDifferences.Add($"trace lane differs at trace {at} ({desyncStackTraceHashes.Count} vs {other.desyncStackTraceHashes.Count} traces)");
+            }
 
             return null;
         }

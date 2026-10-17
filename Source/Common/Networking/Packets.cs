@@ -36,6 +36,8 @@ public enum Packets : byte
     Client_FrameTime,
     Client_StandaloneWorldSnapshotUpload,
     Client_StandaloneMapSnapshotUpload,
+    Client_Leaves,
+    Client_Fingerprint,
 
     // Joining
     Server_ProtocolOk,
@@ -65,6 +67,8 @@ public enum Packets : byte
     Server_SetFaction,
     Server_RequestRejoin,
     Server_SyncVerdict,
+    Server_LeafRequest,
+    Server_LeafDiff,
 
     // All states (Joining, Loading, Playing)
     Server_Disconnect,

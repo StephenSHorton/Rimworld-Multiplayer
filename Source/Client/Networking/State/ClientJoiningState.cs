@@ -62,6 +62,7 @@ namespace Multiplayer.Client
             defInfos = MultiplayerData.localDefInfos
                 .Select(kv => new KeyedDefInfo { name = kv.Key, count = kv.Value.count, hash = kv.Value.hash })
                 .ToArray(),
+            fingerprint = Desyncs.JoinFingerprint.Build(),
             includeConfigs = includeConfigs,
             Mods = JoinData.WriteServerData(includeConfigs)
         };
@@ -74,7 +75,8 @@ namespace Multiplayer.Client
                 staticCtorRoundMode = MultiplayerData.staticCtorRoundMode,
                 defInfos = MultiplayerData.localDefInfos
                     .Select(kv => new KeyedDefInfo { name = kv.Key, count = kv.Value.count, hash = kv.Value.hash })
-                    .ToArray()
+                    .ToArray(),
+                fingerprint = Desyncs.JoinFingerprint.Build()
             }.Serialize());
 
         [TypedPacketHandler]

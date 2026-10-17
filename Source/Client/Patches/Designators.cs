@@ -52,35 +52,22 @@ namespace Multiplayer.Client
             Designator designator = __instance;
 
             Map map = Find.CurrentMap;
+            LoggingByteWriter writer = new LoggingByteWriter();
+            writer.Log.Node("Designate multi cell: " + designator.GetType());
             IntVec3[] cellArray = __0.ToArray();
 
-            // A command carries at most 65535 bytes and a cell is 6, so a drag over a big area
-            // (tens of thousands of cells) threw "Remaining bytes too big" and was lost. Send it in
-            // parts; they run in order, on the same tick, on every client.
-            for (int start = 0; start < cellArray.Length; start += MaxCellsPerCommand)
-            {
-                IntVec3[] cells = start == 0 && cellArray.Length <= MaxCellsPerCommand
-                    ? cellArray
-                    : cellArray.Skip(start).Take(MaxCellsPerCommand).ToArray();
+            WriteData(writer, DesignatorMode.MultiCell, designator);
+            SyncSerialization.WriteSync(writer, cellArray);
 
-                LoggingByteWriter writer = new LoggingByteWriter();
-                writer.Log.Node("Designate multi cell: " + designator.GetType());
+            if (__instance is Designator_Plan_Add addDesignator)
+                SyncSerialization.WriteSync(writer, addDesignator.colorDef);
 
-                WriteData(writer, DesignatorMode.MultiCell, designator);
-                SyncSerialization.WriteSync(writer, cells);
-
-                if (__instance is Designator_Plan_Add addDesignator)
-                    SyncSerialization.WriteSync(writer, addDesignator.colorDef);
-
-                SendSyncCommand(map.uniqueID, writer);
-                Multiplayer.WriterLog.AddCurrentNode(writer);
-            }
+            // A drag over a big area can pass the 64 KB command limit; SendCommand splits it (CommandChunks)
+            SendSyncCommand(map.uniqueID, writer);
+            Multiplayer.WriterLog.AddCurrentNode(writer);
 
             return false;
         }
-
-        // 8000 cells is 48 KB, leaving room for the designator data under the 64 KB command limit.
-        private const int MaxCellsPerCommand = 8000;
 
         public static bool DesignateThing(Designator __instance, Thing __0)
         {

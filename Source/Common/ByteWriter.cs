@@ -77,9 +77,21 @@ namespace Multiplayer.Common
             stream.Write(buffer, offset, length);
         }
 
-        public virtual ByteWriter WriteString(string? s)
+        /// <summary>What ByteReader.ReadString accepts by default.</summary>
+        public const int MaxStringBytes = 32767;
+
+        public virtual ByteWriter WriteString(string? s) => WriteString(s, MaxStringBytes);
+
+        /// <summary>
+        /// A string the reader would refuse throws here, on the sender, before anything is sent: a command that
+        /// only failed when every game read it had already changed the sender's interface (Desync-04).
+        /// </summary>
+        public ByteWriter WriteString(string? s, int maxBytes)
         {
-            WritePrefixedBytes(s == null ? null : Encoding.UTF8.GetBytes(s));
+            var bytes = s == null ? null : Encoding.UTF8.GetBytes(s);
+            if (bytes != null && bytes.Length > maxBytes)
+                throw new WriterException($"String too long to send ({bytes.Length} > {maxBytes} bytes): {s!.Substring(0, Math.Min(80, s.Length))}...");
+            WritePrefixedBytes(bytes);
             return this;
         }
 

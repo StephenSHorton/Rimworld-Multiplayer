@@ -25,6 +25,8 @@ namespace Multiplayer.Common
         // bandwidth; the random states, faults and lanes in the opinion do the checking.
         public bool desyncTraces;
         public bool syncConfigs = true;
+        // Debug: when two games first differ, hold every game at one tick and save each full game state there
+        public bool desyncDebugFreeze;
         // Autosave too, so a joiner never has to catch up through more than one autosave interval of commands.
         public AutoJoinPointFlags autoJoinPoint = AutoJoinPointFlags.Join | AutoJoinPointFlags.Desync | AutoJoinPointFlags.Autosave;
         public DevModeScope devModeScope;
@@ -68,6 +70,7 @@ namespace Multiplayer.Common
             ScribeLike.Look(ref debugMode, "debugMode");
             ScribeLike.Look(ref desyncTraces, "desyncTraces");
             ScribeLike.Look(ref syncConfigs, "syncConfigs", true);
+            ScribeLike.Look(ref desyncDebugFreeze, "desyncDebugFreeze");
             ScribeLike.Look(ref autoJoinPoint, "autoJoinPoint", AutoJoinPointFlags.Join | AutoJoinPointFlags.Desync | AutoJoinPointFlags.Autosave);
             ScribeLike.Look(ref devModeScope, "devModeScope");
             ScribeLike.Look(ref hasPassword, "hasPassword");
@@ -96,6 +99,7 @@ namespace Multiplayer.Common
             buf.Bind(ref settings.debugMode);
             buf.Bind(ref settings.desyncTraces);
             buf.Bind(ref settings.syncConfigs);
+            buf.Bind(ref settings.desyncDebugFreeze);
             buf.BindEnum(ref settings.autoJoinPoint);
             buf.BindEnum(ref settings.devModeScope);
             buf.Bind(ref settings.hasPassword);
