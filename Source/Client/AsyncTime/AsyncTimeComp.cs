@@ -220,9 +220,9 @@ namespace Multiplayer.Client
 
         public void FinalizeInit()
         {
-            cmds = new Queue<ScheduledCommand>(
+            cmds = new Queue<ScheduledCommand>(HostLedClock.InTickOrder(
                 Multiplayer.session.dataSnapshot?.MapCmds.GetValueSafe(map.uniqueID) ?? new List<ScheduledCommand>()
-            );
+            ));
 
             Log.Message($"Init map with cmds {cmds.Count}");
         }

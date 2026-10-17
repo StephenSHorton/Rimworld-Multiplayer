@@ -525,9 +525,9 @@ namespace Multiplayer.Client
                 return false;
             }
 
-            // Host-led clock: the server's timer follows this game's (see MultiplayerServer.hostTimer). While the host
-            // isn't in a game yet the server isn't held back.
-            localServer.hostTimer = () => Multiplayer.Client != null && Multiplayer.game != null ? TickPatch.Timer : int.MaxValue;
+            // Host-led clock: this game sets the pace (see MultiplayerServer.hostTimer)
+            if (Environment.GetEnvironmentVariable("MP_SERVER_CLOCK") != "1")
+                localServer.hostTimer = () => TickPatch.Timer;
 
             Multiplayer.LocalServer = localServer;
             return true;

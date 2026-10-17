@@ -61,7 +61,9 @@ public class SyncReferee(MultiplayerServer server)
     {
         // After a join point both games have the same save loaded, so every row counts, warn rows too
         var (blocking, warnings) = Fingerprint.Compare(ReferenceFingerprint, rows, "host", player.Username);
-        blocking.AddRange(warnings.Where(w => !w.StartsWith("Runtime") && !w.StartsWith("Language")));
+        // Not the Harmony row: mods patch interface and drawing code lazily (Map Preview, Show Me Your Hands), so
+        // two games in sync differ there; in dev mode MpDesyncs/harmony-<player>.txt lists them for diffing
+        blocking.AddRange(warnings.Where(w => !w.StartsWith("Runtime") && !w.StartsWith("Language") && !w.StartsWith("Harmony patches")));
         if (blocking.Count == 0) return;
 
         var text = Fingerprint.Describe(blocking, 6);
@@ -228,7 +230,7 @@ public class SyncReferee(MultiplayerServer server)
         var request = new LeafRequest
         {
             id = nextLeafRequest++,
-            tick = server.holdTimerAt != int.MaxValue ? server.holdTimerAt : server.gameTimer + LeafLead,
+            tick = server.holdTimerAt != int.MaxValue ? server.holdTimerAt : server.StampTick + LeafLead,
             mapId = mapId,
             lane = lane,
             refPlayer = reference.id,
@@ -254,7 +256,7 @@ public class SyncReferee(MultiplayerServer server)
     {
         if (server.holdTimerAt != int.MaxValue) return;
 
-        server.holdTimerAt = server.gameTimer + LeafLead;
+        server.holdTimerAt = server.StampTick + LeafLead;
         ServerLog.Log($"Sync referee: debug freeze, holding every game at timer tick {server.holdTimerAt} and saving their states");
         var packet = new ServerLeafRequestPacket { requestId = -1, tick = server.holdTimerAt, mapId = -1, lane = "save" };
         foreach (var p in server.PlayingPlayers)

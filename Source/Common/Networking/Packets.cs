@@ -38,6 +38,7 @@ public enum Packets : byte
     Client_StandaloneMapSnapshotUpload,
     Client_Leaves,
     Client_Fingerprint,
+    Client_HostTimer,
 
     // Joining
     Server_ProtocolOk,

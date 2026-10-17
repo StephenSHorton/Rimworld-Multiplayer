@@ -46,6 +46,71 @@ namespace Multiplayer.Client.Patches
         }
     }
 
+    /// <summary>
+    /// A district counts its open-roof and vacuum-exposed cells lazily, keeping an enumerator and a running count
+    /// between calls, so a read from the interface advanced the simulation's count in place (restoring a reference
+    /// can't rewind an enumerator). Outside the simulation these count the cells afresh and touch nothing; found
+    /// when NeedRoomSize thoughts appeared on one game only (rooms read as indoors on one side).
+    /// </summary>
+    [HarmonyPatch(typeof(District), nameof(District.OpenRoofCountStopAt))]
+    static class DistrictOpenRoofCountInInterface
+    {
+        static bool Prefix(District __instance, int threshold, ref int __result)
+        {
+            if (!RoomCacheGuard.InInterface) return true;
+
+            var roofs = __instance.Map.roofGrid;
+            int count = 0;
+            foreach (var c in __instance.Cells)
+                if (!roofs.Roofed(c) && ++count >= threshold)
+                    break;
+            __result = count;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(District), nameof(District.ExposedVacuumCount))]
+    static class DistrictExposedCountInInterface
+    {
+        static bool Prefix(District __instance, int threshold, ref int __result)
+        {
+            if (!RoomCacheGuard.InInterface) return true;
+
+            var roofs = __instance.Map.roofGrid;
+            var terrain = __instance.Map.terrainGrid;
+            int count = 0;
+            foreach (var c in __instance.Cells)
+                if ((!roofs.Roofed(c) || terrain.TerrainAt(c).exposesToVacuum) && ++count >= threshold)
+                    break;
+            __result = count;
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(District), nameof(District.CellCount), MethodType.Getter)]
+    static class DistrictCellCountInInterface
+    {
+        static void Prefix(District __instance, out int? __state) =>
+            __state = RoomCacheGuard.InInterface ? __instance.cachedCellCount : null;
+
+        static void Postfix(District __instance, int? __state)
+        {
+            if (__state.HasValue) __instance.cachedCellCount = __state.Value;
+        }
+    }
+
+    [HarmonyPatch(typeof(Room), nameof(Room.CellCount), MethodType.Getter)]
+    static class RoomCellCountInInterface
+    {
+        static void Prefix(Room __instance, out int? __state) =>
+            __state = RoomCacheGuard.InInterface ? __instance.cachedCellCount : null;
+
+        static void Postfix(Room __instance, int? __state)
+        {
+            if (__state.HasValue) __instance.cachedCellCount = __state.Value;
+        }
+    }
+
     [HarmonyPatch]
     static class RoomStatsInInterface
     {

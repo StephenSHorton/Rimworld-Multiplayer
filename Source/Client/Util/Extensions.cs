@@ -77,15 +77,24 @@ namespace Multiplayer.Client
 
         public static void SendCommand(this ConnectionBase conn, CommandType type, int mapId, byte[] data)
         {
+            var hostTicks = HostLedClock.TicksForOwnCommand(conn);
+
             if (data.Length <= CommandChunks.MaxSingleCommand)
             {
-                conn.Send(new ClientCommandPacket(type, mapId, data));
+                Send(conn, type, mapId, data, hostTicks);
                 return;
             }
 
             // Too big for one command packet: compressed, in parts, put back together before it runs on every game
             foreach (var chunk in CommandChunks.Split(type, data, CommandChunks.NextGroupId()))
-                conn.Send(new ClientCommandPacket(CommandType.Chunk, mapId, chunk));
+                Send(conn, CommandType.Chunk, mapId, chunk, hostTicks);
+        }
+
+        private static void Send(ConnectionBase conn, CommandType type, int mapId, byte[] data, int hostTicks)
+        {
+            conn.Send(new ClientCommandPacket(type, mapId, data) { hostTicks = hostTicks });
+            if (hostTicks > 0)
+                HostLedClock.ScheduleOwnCommand(type, mapId, data, hostTicks);
         }
 
         public static void SendCommand(this ConnectionBase conn, CommandType type, int mapId, params object[] data) =>

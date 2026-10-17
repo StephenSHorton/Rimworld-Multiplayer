@@ -141,10 +141,11 @@ namespace Multiplayer.Client
 
             // Minimal code impact fix for #733. Having all the commands be added to a single queue gets rid of the
             // out-of-order execution problem.
+            // In tick order: with the host-led clock the host's own command can arrive after a later-stamped one
             if (cmd.mapId == ScheduledCommand.Global || consistentCommandOrder)
-                Multiplayer.AsyncWorldTime.Cmds.Enqueue(cmd);
-            else
-                cmd.GetMap()?.AsyncTime().Cmds.Enqueue(cmd);
+                HostLedClock.InsertInTickOrder(Multiplayer.AsyncWorldTime.Cmds, cmd);
+            else if (cmd.GetMap() is { } map)
+                HostLedClock.InsertInTickOrder(map.AsyncTime().Cmds, cmd);
         }
 
         public void Update()

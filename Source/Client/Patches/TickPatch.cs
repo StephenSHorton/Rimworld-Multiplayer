@@ -75,9 +75,11 @@ namespace Multiplayer.Client
             // Else run at the speed from the server
             // The host's server is in the same process, with no network jitter to buffer against, so the host stays
             // close to the server's timer and its own commands come back within a tick or two (host-led clock)
-            bool host = Multiplayer.LocalServer != null;
-            int bufferLow = host ? 0 : 3, bufferHigh = host ? 3 : 7;
-            float stpt = ticksBehind <= bufferLow ? serverTimePerTick * 1.2f : ticksBehind >= bufferHigh ? serverTimePerTick * 0.8f : serverTimePerTick;
+            // With the host-led clock the host sets the pace: it runs at the server's speed up to its limit, and
+            // everyone else follows it with their buffer
+            float stpt = HostLedClock.IsHost
+                ? serverTimePerTick
+                : ticksBehind <= 3 ? serverTimePerTick * 1.2f : ticksBehind >= 7 ? serverTimePerTick * 0.8f : serverTimePerTick;
 
             if (Multiplayer.IsReplay)
                 stpt = StandardTimePerFrame * ReplayMultiplier();
@@ -243,6 +245,7 @@ namespace Multiplayer.Client
 
             ticksToRun -= 1;
             Timer += 1;
+            HostLedClock.ReportTimer();
 
             tickTimer.Stop();
 

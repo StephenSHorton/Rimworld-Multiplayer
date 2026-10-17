@@ -15,7 +15,7 @@ namespace Multiplayer.Common
             this.server = server;
         }
 
-        public void Send(CommandType cmdType, int factionId, int mapId, byte[] data, ServerPlayer? sourcePlayer = null, ServerPlayer? fauxSource = null)
+        public void Send(CommandType cmdType, int factionId, int mapId, byte[] data, ServerPlayer? sourcePlayer = null, ServerPlayer? fauxSource = null, int hostTicks = 0)
         {
             // policy
             if (sourcePlayer != null)
@@ -43,9 +43,14 @@ namespace Multiplayer.Common
                     return;
             }
 
+            // The host's own command already runs at the tick it chose (host-led clock); the rest are stamped now
+            bool fromHost = hostTicks > 0 && server.HostLed && sourcePlayer is { IsHost: true };
+            if (fromHost && hostTicks <= server.gameTimer)
+                ServerLog.Error($"Host command for tick {hostTicks} arrived after the host reported tick {server.gameTimer}");
+
             var cmd = new ScheduledCommand(
                 cmdType,
-                server.gameTimer,
+                fromHost ? hostTicks : server.StampTick,
                 factionId,
                 mapId,
                 sourcePlayer?.id ?? fauxSource?.id ?? ScheduledCommand.NoPlayer,
@@ -67,7 +72,8 @@ namespace Multiplayer.Common
             }
             else
             {
-                server.SendToPlaying(ServerCommandPacket.From(cmd));
+                // The host scheduled its own command already
+                server.SendToPlaying(ServerCommandPacket.From(cmd), excluding: fromHost ? sourcePlayer : null);
             }
 
             SentCmds++;

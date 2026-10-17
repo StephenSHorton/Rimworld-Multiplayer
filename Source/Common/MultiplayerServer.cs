@@ -51,13 +51,34 @@ namespace Multiplayer.Common
         public int holdTimerAt = int.MaxValue;
 
         /// <summary>
-        /// Host-led clock: the hosting game's timer, read from the server thread (it's in the same process). The
-        /// server's timer, which every other game runs up to, never gets more than <see cref="HostMaxLead"/> ticks
-        /// ahead of it, so no game runs ahead of the host and the host's own commands land within a few ticks of
-        /// where the host is. Null for a standalone server.
+        /// Host-led clock (a hosted game, not a standalone server). The host's game sets the pace: it reports its
+        /// timer through the same ordered channel as its commands, and <see cref="gameTimer"/>, which every other game
+        /// runs up to, is the last timer it reported. The host runs up to <see cref="hostLimit"/>, a few ticks ahead.
+        ///
+        /// Why it's safe:
+        /// - The host schedules its own commands at its next tick and runs them without waiting for the server; the
+        ///   server only forwards them. No other game can have passed that tick, because the host reports reaching
+        ///   it only after the command, in order.
+        /// - Everyone else's commands (and the server's) are stamped one past the highest limit the host was given,
+        ///   so the host, which can't run past its limit, gets them before it reaches their tick.
+        /// - The host picks its tick past any command it has already received, so no two commands share a tick
+        ///   unless they came the same way, and every game puts commands in tick order.
+        /// Null hostTimer: the old server-paced clock (standalone servers).
         /// </summary>
         public Func<int>? hostTimer;
-        public const int HostMaxLead = 6;
+        public bool HostLed => hostTimer != null;
+        public const int HostLimitLead = 6;
+        public int hostLimit;
+        private int lastSentHostLimit;
+
+        /// <summary>The tick a command the server schedules now runs at.</summary>
+        public int StampTick => HostLed ? Math.Max(lastSentHostLimit, gameTimer) + 1 : gameTimer;
+
+        public void OnHostTimer(int timer)
+        {
+            if (HostLed && timer > gameTimer)
+                gameTimer = timer;
+        }
 
         // Set when something is queued for the server thread, so a host command is stamped and sent right away
         private readonly AutoResetEvent queued = new(false);
@@ -132,14 +153,19 @@ namespace Multiplayer.Common
                     netManagers.ForEach(manager => manager.Tick());
                     TickNet();
 
+                    if (HostLed)
+                    {
+                        TickHostLed();
+                        realTime = 0;
+                    }
+
                     int ticked = 0;
-                    while (realTime > 0 && ticked < 2)
+                    while (!HostLed && realTime > 0 && ticked < 2)
                     {
                         playersBehind.Clear();
                         playersBehind.AddRange(PlayingIngamePlayers.Where(p => p.ExtrapolatedTicksBehind > 90));
                         if (!freezeManager.Frozen &&
                             gameTimer < holdTimerAt &&
-                            (hostTimer == null || gameTimer - hostTimer() < HostMaxLead) &&
                             PlayingPlayers.Any(p => p.ExtrapolatedTicksBehind < 40) &&
                             !playersBehind.Any())
                         {
@@ -196,6 +222,23 @@ namespace Multiplayer.Common
             }
         }
 
+        // Host-led: the host may run a few ticks past where it is, unless someone is too far behind, the game is
+        // frozen or held (debug freeze); the pace slows the way the server clock used to when players fall behind
+        private void TickHostLed()
+        {
+            var behind = PlayingIngamePlayers.Where(p => !p.IsHost && p.ExtrapolatedTicksBehind > 90).ToList();
+            if (behind.Any() && NetTimer % NetTicksPerSecond == 0)
+                ServerLog.Log($"Simulation paused because some players are too far behind: {behind.Join(p => p.Username)}");
+
+            if (!freezeManager.Frozen && !behind.Any())
+            {
+                var limit = Math.Min(gameTimer + HostLimitLead, holdTimerAt);
+                if (limit > hostLimit) hostLimit = limit;
+            }
+
+            sentCmdsSnapshot = commands.SentCmds;
+        }
+
         private void TickNet()
         {
             NetTimer++;
@@ -213,7 +256,22 @@ namespace Multiplayer.Common
 
             // Send to simulating players as well to update the simulation window for them and actually update further
             // during the same simulation.
-            SendToPlaying(new ServerTimeControlPacket(gameTimer, sentCmdsSnapshot, serverTimePerTick), false);
+            if (HostLed)
+            {
+                // The host runs to its limit, everyone else to where the host is; a slow player slows the host down
+                var slowdown = Math.Min(PlayingIngamePlayers.Where(p => !p.IsHost).MaxOrZero(p => p.ticksBehind) / 60f, 2f);
+                foreach (var player in PlayingPlayers)
+                {
+                    var tickUntil = player.IsHost ? hostLimit : gameTimer;
+                    player.SendPacket(new ServerTimeControlPacket(tickUntil, sentCmdsSnapshot,
+                        player.IsHost ? serverTimePerTick * (1f + slowdown) : serverTimePerTick), false);
+                }
+                if (hostLimit > lastSentHostLimit) lastSentHostLimit = hostLimit;
+            }
+            else
+            {
+                SendToPlaying(new ServerTimeControlPacket(gameTimer, sentCmdsSnapshot, serverTimePerTick), false);
+            }
 
             serverTimePerTick = PlayingIngamePlayers.MaxOrZero(p => p.frameTime);
 

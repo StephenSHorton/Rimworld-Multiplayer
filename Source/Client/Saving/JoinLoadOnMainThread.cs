@@ -16,7 +16,8 @@ namespace Multiplayer.Client.Saving
     {
         static void Prefix(string textKey, ref bool doAsynchronously)
         {
-            if (doAsynchronously && LoadPatch.gameToLoad != null && textKey == "LoadingLongEvent")
+            if (doAsynchronously && LoadPatch.gameToLoad != null && textKey == "LoadingLongEvent" &&
+                Environment.GetEnvironmentVariable("MP_ASYNC_JOIN_LOAD") != "1")
                 doAsynchronously = false;
         }
     }

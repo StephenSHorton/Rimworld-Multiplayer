@@ -39,12 +39,24 @@ public record struct ClientCommandPacket(CommandType type, int mapId, byte[] dat
 {
     public CommandType type = type;
     public int mapId = mapId;
+    // Host-led clock: the tick the host already scheduled this command at in its own game; 0 = the server stamps it
+    public int hostTicks;
     public byte[] data = data;
 
     public void Bind(PacketBuffer buf)
     {
         buf.BindEnum(ref type);
         buf.Bind(ref mapId);
+        buf.Bind(ref hostTicks);
         buf.BindRemaining(ref data, maxLength: 65535);
     }
+}
+
+/// <summary>Host-led clock: the hosting game's timer, sent through the same ordered channel as its commands.</summary>
+[PacketDefinition(Packets.Client_HostTimer)]
+public record struct ClientHostTimerPacket(int timer) : IPacket
+{
+    public int timer = timer;
+
+    public void Bind(PacketBuffer buf) => buf.Bind(ref timer);
 }

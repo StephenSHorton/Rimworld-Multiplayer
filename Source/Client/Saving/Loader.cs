@@ -75,8 +75,8 @@ public static class Loader
         );
         Multiplayer.game.myFactionLoading = null;
 
-        Multiplayer.AsyncWorldTime.cmds = new Queue<ScheduledCommand>(
-            Multiplayer.session.dataSnapshot.MapCmds.GetValueSafe(ScheduledCommand.Global) ?? []);
+        Multiplayer.AsyncWorldTime.cmds = new Queue<ScheduledCommand>(HostLedClock.InTickOrder(
+            Multiplayer.session.dataSnapshot.MapCmds.GetValueSafe(ScheduledCommand.Global) ?? []));
         // Map cmds are added in MapAsyncTimeComp.FinalizeInit
     }
 

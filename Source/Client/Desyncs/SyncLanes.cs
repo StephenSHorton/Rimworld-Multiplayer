@@ -456,6 +456,19 @@ namespace Multiplayer.Client
                     foreach (var area in map.areaManager.AllAreas)
                         lines.Add((1_000_000 + area.ID, $"area{area.ID} type={area.GetType().Name} cells={area.TrueCount}"));
                     break;
+                case "thoughts":
+                    // Diagnosis: memories and the cached situational thoughts as they are, nothing recalculated
+                    foreach (var p in map.mapPawns.AllPawnsSpawned)
+                    {
+                        var handler = p.needs?.mood?.thoughts;
+                        if (handler == null) continue;
+                        var memories = handler.memories?.Memories == null ? "" :
+                            string.Join(",", handler.memories.Memories.Select(m => $"{m.def?.defName}@{m.CurStageIndex}#{m.age}").OrderBy(x => x, StringComparer.Ordinal));
+                        var situational = string.Join(",", handler.situational.cachedThoughts
+                            .Select(t => $"{t.def?.defName}@{t.CurStageIndex}").OrderBy(x => x, StringComparer.Ordinal));
+                        lines.Add((p.thingIDNumber, $"{p.ThingID} dirty={handler.situational.thoughtsDirty} memories=[{memories}] situational=[{situational}]"));
+                    }
+                    break;
                 case "beauty":
                     // Diagnosis only: these calls may fill stat caches, so it runs only from the dump below
                     foreach (var p in map.mapPawns.AllPawnsSpawned)
@@ -501,7 +514,7 @@ namespace Multiplayer.Client
 
             var sb = new System.Text.StringBuilder();
             foreach (var map in Find.Maps)
-                foreach (var lane in new[] { "pawns", "plants", "things", "beauty" })
+                foreach (var lane in new[] { "pawns", "plants", "things", "beauty", "thoughts" })
                 {
                     sb.AppendLine($"== map {map.uniqueID} / {lane} at timer tick {tick}, game tick {Find.TickManager.TicksGame}");
                     foreach (var line in Leaves(map, lane))

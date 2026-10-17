@@ -53,7 +53,7 @@ namespace Multiplayer.Common
 
             // todo check if map id is valid for the player
 
-            Server.commands.Send(packet.type, Player.FactionId, packet.mapId, packet.data, Player);
+            Server.commands.Send(packet.type, Player.FactionId, packet.mapId, packet.data, Player, hostTicks: packet.hostTicks);
 
             if (mapToResync is int currentMapId)
                 Server.SendMapResponse(Player, currentMapId);
@@ -207,6 +207,12 @@ namespace Multiplayer.Common
 
             foreach (var p in Server.PlayingPlayers.Where(p => !p.IsArbiter && (arbiter || !p.IsHost)))
                 p.conn.SendFragmented(new ServerSyncInfoPacket { rawSyncOpinion = packet.rawSyncOpinion }.Serialize());
+        }
+
+        [TypedPacketHandler]
+        public void HandleHostTimer(ClientHostTimerPacket packet)
+        {
+            if (Player.IsHost) Server.OnHostTimer(packet.timer);
         }
 
         [TypedPacketHandler]

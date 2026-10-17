@@ -74,6 +74,19 @@ namespace Multiplayer.Client.Desyncs
                 ulong h = 0;
                 foreach (var p in patched)
                     h = SyncLanes.Mix(h, FaultSignature.Hash(p));
+                if (Prefs.DevMode)
+                {
+                    // Dev mode: the list itself, so two players' files show which methods differ
+                    try
+                    {
+                        System.IO.Directory.CreateDirectory(Multiplayer.DesyncsDir);
+                        System.IO.File.WriteAllLines(System.IO.Path.Combine(Multiplayer.DesyncsDir, $"harmony-{Multiplayer.username}.txt"), patched);
+                    }
+                    catch (System.IO.IOException)
+                    {
+                    }
+                }
+
                 // Some mods patch when a game loads, and a joiner is still at the menu: compared after the join point
                 Add("Harmony patches", $"{patched.Count} methods, {h:X16}", warn: true);
             });
