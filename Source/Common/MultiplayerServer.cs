@@ -258,6 +258,12 @@ namespace Multiplayer.Common
             // during the same simulation.
             if (HostLed)
             {
+                // The count must be taken now, with the timers it goes out with: gameTimer may already have moved
+                // past a host command processed since the last count, and a game that sees the new limit with the
+                // old count would run past that command's tick before receiving it (Desync-10, "Random state from
+                // commands doesn't match: 1 vs 0 entries")
+                sentCmdsSnapshot = commands.SentCmds;
+
                 // The host runs to its limit, everyone else to where the host is; a slow player slows the host down
                 var slowdown = Math.Min(PlayingIngamePlayers.Where(p => !p.IsHost).MaxOrZero(p => p.ticksBehind) / 60f, 2f);
                 foreach (var player in PlayingPlayers)
