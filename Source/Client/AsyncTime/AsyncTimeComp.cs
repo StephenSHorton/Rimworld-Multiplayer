@@ -211,6 +211,13 @@ namespace Multiplayer.Client
             Scribe_Values.Look(ref gameStartAbsTickMap, "gameStartAbsTickMap");
 
             Scribe_Custom.LookULong(ref randState, "randState", 1);
+
+            // Viewers set the map's tick rate (VTR) and only change when a player switches maps, so a reload that
+            // dropped them (every join point, now every autosave) left every map unviewed: pawns and projectiles
+            // updated every 15 ticks, shots hanging in the air
+            var playerCount = CurrentPlayerCount;
+            Scribe_Values.Look(ref playerCount, "playerCount");
+            CurrentPlayerCount = playerCount;
         }
 
         public int IncreasePlayerCount() => CurrentPlayerCount += 1;

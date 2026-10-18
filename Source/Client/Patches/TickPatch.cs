@@ -180,9 +180,16 @@ namespace Multiplayer.Client
 
             foreach (ITickable tickable in AllTickables)
             {
-                while (tickable.Cmds.Count > 0 && tickable.Cmds.Peek().ticks == curTimer)
+                while (tickable.Cmds.Count > 0 && tickable.Cmds.Peek().ticks <= curTimer)
                 {
                     ScheduledCommand cmd = tickable.Cmds.Dequeue();
+
+                    // A command for a tick this game has already passed can't run where it belongs, and left at the
+                    // head of the queue it blocked every command behind it (Blake's game stopped taking orders while
+                    // the host's kept going). Run it now and say so; the command random states then differ, which
+                    // is a desync, and recovery reloads this game.
+                    if (cmd.ticks < curTimer)
+                        Util.MpLog.Error($"Command {cmd.type} for timer tick {cmd.ticks} arrived after this game passed it (now {curTimer}); running it late");
 
                     // The parts of a big command run as one command when the last part arrives
                     if (cmd.type == CommandType.Chunk && !chunks.TryAssemble(cmd, out cmd))

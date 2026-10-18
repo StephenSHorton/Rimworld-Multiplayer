@@ -42,8 +42,13 @@ namespace Multiplayer.Common
                 var prevMapId = reader.ReadInt32();
                 var newMapId = reader.ReadInt32();
                 if (Player.currentMapId != prevMapId)
-                    ServerLog.Error($"Inconsistent player {Player.Username} map. Last known map: {Player.currentMapId}, " +
-                                    $"however received command with transition: {prevMapId} -> {newMapId}");
+                {
+                    // A game that reloaded or restarted forgets which map it was on and says it came from none; the
+                    // server knows, and every game must take the viewer off that map or its count stays up for good
+                    ServerLog.Detail($"Player {Player.Username} map: last known {Player.currentMapId}, " +
+                                     $"command says {prevMapId} -> {newMapId}; using {Player.currentMapId}");
+                    packet = packet with { data = ByteWriter.GetBytes(Player.currentMapId, newMapId) };
+                }
                 Player.currentMapId = newMapId;
                 Player.hasReportedCurrentMap = true;
 

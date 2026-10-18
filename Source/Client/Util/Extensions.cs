@@ -77,7 +77,8 @@ namespace Multiplayer.Client
 
         public static void SendCommand(this ConnectionBase conn, CommandType type, int mapId, byte[] data)
         {
-            var hostTicks = HostLedClock.TicksForOwnCommand(conn);
+            // Map switches go through the server, which may correct their "from" map
+            var hostTicks = type == CommandType.PlayerCount ? 0 : HostLedClock.TicksForOwnCommand(conn);
 
             if (data.Length <= CommandChunks.MaxSingleCommand)
             {

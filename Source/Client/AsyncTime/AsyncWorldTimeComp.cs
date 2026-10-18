@@ -86,6 +86,11 @@ public class AsyncWorldTimeComp : IExposable, ITickable
         Scribe_Values.Look(ref timeSpeedInt, "timeSpeed");
         Scribe_Custom.LookULong(ref randState, "randState", 2);
 
+        // See AsyncTimeComp.ExposeData: viewers must survive a reload
+        var playerCount = CurrentPlayerCount;
+        Scribe_Values.Look(ref playerCount, "playerCount");
+        CurrentPlayerCount = playerCount;
+
         TimeSpeed timeSpeed = Find.TickManager.CurTimeSpeed;
         Scribe_Values.Look(ref timeSpeed, "timeSpeed");
         if (Scribe.mode == LoadSaveMode.LoadingVars)
