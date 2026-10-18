@@ -163,7 +163,9 @@ namespace Multiplayer.Client
                     .AllNotNull();
 
                 foreach (var method in methods) {
-                    var sync = Sync.RegisterSyncMethod(method);
+                    // Vanilla queues the order (Verb.OrderForceTarget -> TryTakeOrderedJob) when Shift is held, which
+                    // it reads while the command runs; carry the issuer's Shift state, as for move orders
+                    var sync = Sync.RegisterSyncMethod(method).SetContext(SyncContext.QueueOrder_Down);
 
                     if (method.DeclaringType == typeof(CompTargetable))
                     {
