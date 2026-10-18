@@ -262,11 +262,18 @@ namespace Multiplayer.Client
             h = Mix(h, t.def);
             h = Mix(h, t.Stuff);
             h = Mix(h, t.positionInt);
-            h = Mix(h, t.rotationInt.AsInt);
+            h = Mix(h, LaneRotation(t));
             h = Mix(h, t.stackCount);
             h = Mix(h, t.hitPointsInt);
             return h;
         }
+
+        /// <summary>
+        /// A 1x1 door's rotation is set while it is drawn (Building_Door.DoorPreDraw), so it follows each player's
+        /// camera; the simulation never reads it for those doors. Left out of the lane.
+        /// </summary>
+        private static int LaneRotation(Thing t) =>
+            t is Building_Door && t.def.size == IntVec2.One ? 0 : t.rotationInt.AsInt;
 
         private static ulong ThingsLane(Map map)
         {
@@ -401,7 +408,7 @@ namespace Multiplayer.Client
             {
                 case "things":
                     foreach (var t in map.listerThings.AllThings)
-                        lines.Add((t.thingIDNumber, $"{t.ThingID} def={t.def?.defName} stuff={t.Stuff?.defName} pos={t.positionInt} rot={t.rotationInt.AsInt} stack={t.stackCount} hp={t.hitPointsInt}"));
+                        lines.Add((t.thingIDNumber, $"{t.ThingID} def={t.def?.defName} stuff={t.Stuff?.defName} pos={t.positionInt} rot={LaneRotation(t)} stack={t.stackCount} hp={t.hitPointsInt}"));
                     break;
                 case "plants":
                     foreach (var t in map.listerThings.ThingsInGroup(ThingRequestGroup.Plant))
