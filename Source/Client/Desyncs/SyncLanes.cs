@@ -61,13 +61,15 @@ namespace Multiplayer.Client
             RegisterMapLane("pawns", PawnsLane);
             RegisterMapLane("zones", ZonesLane, cadence: GridCadence);
             RegisterMapLane("designations", DesignationsLane, cadence: GridCadence);
-            RegisterMapLane("time", MapTimeLane);
+            // HARD: two games whose map clocks differ have desynced, whatever the random states say (a map split
+            // that way on a real session while every random state matched)
+            RegisterMapLane("time", MapTimeLane, hard: true);
 
             RegisterWorldLane("factions", FactionsLane);
             RegisterWorldLane("quests", QuestsLane);
             RegisterWorldLane("worldobjects", WorldObjectsLane);
             RegisterWorldLane("worldpawns", WorldPawnsLane);
-            RegisterWorldLane("time", WorldTimeLane);
+            RegisterWorldLane("time", WorldTimeLane, hard: true);
         }
 
         /// <summary>A lane computed for every map. The name must be unique and the same on every game.</summary>
