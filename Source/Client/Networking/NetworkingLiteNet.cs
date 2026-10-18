@@ -41,7 +41,11 @@ namespace Multiplayer.Client.Networking
             return conn;
         }
 
-        public void Tick() => netManager.PollEvents();
+        public void Tick()
+        {
+            netManager.PollEvents();
+            NetListener.ReleaseDelayed();
+        }
 
         public void OnDisconnect(SessionDisconnectInfo disconnectInfo)
         {
@@ -76,7 +80,33 @@ namespace Multiplayer.Client.Networking
             public void OnNetworkReceive(NetPeer peer, NetPacketReader reader, byte channelNumber, DeliveryMethod method)
             {
                 byte[] data = reader.GetRemainingBytes();
-                GetConnection(peer).HandleReceiveRaw(new ByteReader(data), method == DeliveryMethod.ReliableOrdered);
+                bool reliable = method == DeliveryMethod.ReliableOrdered;
+                if (reliable && ReliableDelayMs > 0)
+                {
+                    delayedReliable.Enqueue((ReliableDelay.ElapsedMilliseconds + ReliableDelayMs, GetConnection(peer), data));
+                    return;
+                }
+
+                GetConnection(peer).HandleReceiveRaw(new ByteReader(data), reliable);
+            }
+
+            /// <summary>
+            /// Testing: MP_SIM_RELIABLE_DELAY=ms holds reliable packets (commands) back that long while unreliable
+            /// ones (time control) go through, so they arrive out of order as they can over a real connection; the
+            /// local harness on 127.0.0.1 never reorders them.
+            /// </summary>
+            private static readonly int ReliableDelayMs =
+                int.TryParse(Environment.GetEnvironmentVariable("MP_SIM_RELIABLE_DELAY"), out var ms) ? ms : 0;
+            private static readonly System.Diagnostics.Stopwatch ReliableDelay = System.Diagnostics.Stopwatch.StartNew();
+            private static readonly System.Collections.Generic.Queue<(long due, ConnectionBase conn, byte[] data)> delayedReliable = new();
+
+            public static void ReleaseDelayed()
+            {
+                while (delayedReliable.Count > 0 && delayedReliable.Peek().due <= ReliableDelay.ElapsedMilliseconds)
+                {
+                    var (_, conn, data) = delayedReliable.Dequeue();
+                    conn.HandleReceiveRaw(new ByteReader(data), true);
+                }
             }
 
             public void OnPeerDisconnected(NetPeer peer, DisconnectInfo info)
