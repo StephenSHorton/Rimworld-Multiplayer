@@ -83,6 +83,8 @@ namespace Multiplayer.Client.Networking
                 bool reliable = method == DeliveryMethod.ReliableOrdered;
                 if (reliable && ReliableDelayMs > 0)
                 {
+                    if (delayedCount++ == 0)
+                        Log.Message($"MP_SIM_RELIABLE_DELAY: holding reliable packets back {ReliableDelayMs} ms");
                     delayedReliable.Enqueue((ReliableDelay.ElapsedMilliseconds + ReliableDelayMs, GetConnection(peer), data));
                     return;
                 }
@@ -97,6 +99,7 @@ namespace Multiplayer.Client.Networking
             /// </summary>
             private static readonly int ReliableDelayMs =
                 int.TryParse(Environment.GetEnvironmentVariable("MP_SIM_RELIABLE_DELAY"), out var ms) ? ms : 0;
+            private static int delayedCount;
             private static readonly System.Diagnostics.Stopwatch ReliableDelay = System.Diagnostics.Stopwatch.StartNew();
             private static readonly System.Collections.Generic.Queue<(long due, ConnectionBase conn, byte[] data)> delayedReliable = new();
 
