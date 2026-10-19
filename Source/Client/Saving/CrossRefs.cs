@@ -2,6 +2,7 @@ using HarmonyLib;
 using RimWorld;
 using RimWorld.Planet;
 using Verse;
+using Verse.AI.Group;
 
 namespace Multiplayer.Client
 {
@@ -173,6 +174,8 @@ namespace Multiplayer.Client
             if (Multiplayer.game == null) return;
 
             ScribeUtil.sharedCrossRefs.UnregisterAllFrom(map);
+            foreach (var lord in map.lordManager.lords)
+                ScribeUtil.sharedCrossRefs.Unregister(lord);
             Multiplayer.ThingsById.UnregisterAllFrom(map);
 
             ScribeUtil.sharedCrossRefs.Unregister(map);
@@ -206,7 +209,33 @@ namespace Multiplayer.Client
                     ScribeUtil.sharedCrossRefs.RegisterLoaded(precept);
 
             foreach (var map in Find.Maps)
+            {
                 ScribeUtil.sharedCrossRefs.RegisterLoaded(map);
+                foreach (var lord in map.lordManager.lords)
+                    ScribeUtil.sharedCrossRefs.RegisterLoaded(lord);
+            }
+        }
+    }
+
+    // A synced order can carry a lord: the "give items to" float menu sets job.lord to the asking group's lord.
+    // Without the lord registered the command resolved it to null on every game, so the order lost it.
+    [HarmonyPatch(typeof(LordManager), nameof(LordManager.AddLord))]
+    public static class LordAddPatch
+    {
+        static void Postfix(Lord newLord)
+        {
+            if (Multiplayer.game == null) return;
+            ScribeUtil.sharedCrossRefs.RegisterLoaded(newLord);
+        }
+    }
+
+    [HarmonyPatch(typeof(LordManager), nameof(LordManager.RemoveLord))]
+    public static class LordRemovePatch
+    {
+        static void Prefix(Lord oldLord)
+        {
+            if (Multiplayer.game == null) return;
+            ScribeUtil.sharedCrossRefs.Unregister(oldLord);
         }
     }
 
