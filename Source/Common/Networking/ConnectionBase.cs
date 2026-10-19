@@ -197,9 +197,16 @@ namespace Multiplayer.Common
             FragmentedPacket fragPacket;
             if (fragIndex == -1)
             {
+                // A sender writes all parts of one packet back to back on the ordered channel, so a new packet starting
+                // means an unfinished one will never complete: its last parts arrived in a state with no handler for
+                // them (a desync's resync switched states in the middle of a relayed sync opinion) and were dropped.
+                // Refusing the new one instead lost the resync's world data and ended the session.
                 if (fragments.Count >= MaxFragmentedPackets)
-                    throw new PacketReadException(
-                        $"High number of fragmented packets at once! {fragments.Count}/{MaxFragmentedPackets}. This will likely cause issues. Dropping the just received fragmented packet (packet type: {packetType}, fragment id: {fragId}).");
+                {
+                    foreach (var (staleId, stale) in fragments)
+                        ServerLog.Log($"Dropping unfinished fragmented packet {stale.Id} (fragment id {staleId}, {stale.ReceivedPartsCount}/{stale.ExpectedPartsCount} parts) for the new {packetType}");
+                    fragments.Clear();
+                }
 
                 var expectedParts = reader.ReadUShort();
                 var expectedSize = reader.ReadUInt32();
