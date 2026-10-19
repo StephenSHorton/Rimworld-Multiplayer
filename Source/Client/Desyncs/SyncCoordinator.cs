@@ -117,6 +117,7 @@ namespace Multiplayer.Client
                     var key = FaultSignature.Normalize(soft);
                     softSeen.TryGetValue(key, out var seen);
                     softSeen[key] = seen + 1;
+                    IdLedger.OnLaneDiffers(soft);
                     if (seen % 50 == 0)
                         MpLog.Warn($"Sync check at tick {oldOpinion.startTick} (play continues): {soft}" + (seen > 0 ? $" (seen {seen + 1} times)" : ""));
                 }

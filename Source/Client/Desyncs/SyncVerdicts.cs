@@ -91,6 +91,7 @@ namespace Multiplayer.Client
             }
 
             SoftCount++;
+            Desyncs.IdLedger.OnLaneDiffers(packet.message);
             MpLog.Warn($"Sync referee (play continues): {who} at tick {packet.tick}: {packet.message}");
             if (sinceLastSoftMessage.ElapsedMilliseconds < SoftMessageEveryMs) return;
 
