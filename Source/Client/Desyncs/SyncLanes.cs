@@ -70,6 +70,7 @@ namespace Multiplayer.Client
             RegisterWorldLane("worldobjects", WorldObjectsLane);
             RegisterWorldLane("worldpawns", WorldPawnsLane);
             RegisterWorldLane("time", WorldTimeLane, hard: true);
+            RegisterWorldLane("ids", Desyncs.IdLedger.LaneHash);
         }
 
         /// <summary>A lane computed for every map. The name must be unique and the same on every game.</summary>
@@ -271,22 +272,32 @@ namespace Multiplayer.Client
         }
 
         /// <summary>
-        /// A 1x1 door's rotation is set while it is drawn (Building_Door.DoorPreDraw), so it follows each player's
-        /// camera; the simulation never reads it for those doors. Left out of the lane.
+        /// A 1x1 door's rotation is set while it is drawn (Building_Door.DoorPreDraw, Blueprint_Door.DrawAt), so it
+        /// follows each player's camera, and a blueprint hands it on to its frame; the simulation never reads it for
+        /// those doors. Left out of the lane.
         /// </summary>
         private static int LaneRotation(Thing t) =>
-            t is Building_Door && t.def.size == IntVec2.One ? 0 : t.rotationInt.AsInt;
+            IsOneCellDoor(t.def) || t.def.entityDefToBuild is ThingDef built && IsOneCellDoor(built) ? 0 : t.rotationInt.AsInt;
+
+        private static bool IsOneCellDoor(ThingDef def) =>
+            def.size == IntVec2.One && def.thingClass != null && typeof(Building_Door).IsAssignableFrom(def.thingClass);
 
         private static ulong ThingsLane(Map map)
         {
+            // Motes are effects: not saved, and some follow what each player sees
             ulong sum = 0;
+            int count = 0;
             var things = map.listerThings.AllThings;
             unchecked
             {
                 for (int i = 0; i < things.Count; i++)
-                    sum += ThingHash(things[i]);
+                    if (things[i] is not Mote)
+                    {
+                        sum += ThingHash(things[i]);
+                        count++;
+                    }
             }
-            return Mix(sum, things.Count);
+            return Mix(sum, count);
         }
 
         private static ulong PlantsLane(Map map)
@@ -410,7 +421,8 @@ namespace Multiplayer.Client
             {
                 case "things":
                     foreach (var t in map.listerThings.AllThings)
-                        lines.Add((t.thingIDNumber, $"{t.ThingID} def={t.def?.defName} stuff={t.Stuff?.defName} pos={t.positionInt} rot={LaneRotation(t)} stack={t.stackCount} hp={t.hitPointsInt}"));
+                        if (t is not Mote)
+                            lines.Add((t.thingIDNumber, $"{t.ThingID} def={t.def?.defName} stuff={t.Stuff?.defName} pos={t.positionInt} rot={LaneRotation(t)} stack={t.stackCount} hp={t.hitPointsInt}"));
                     break;
                 case "plants":
                     foreach (var t in map.listerThings.ThingsInGroup(ThingRequestGroup.Plant))
