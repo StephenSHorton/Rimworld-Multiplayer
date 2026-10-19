@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Xml;
 using HarmonyLib;
 using Multiplayer.Client.Util;
 using Multiplayer.Common.Desyncs;
@@ -142,6 +143,69 @@ namespace Multiplayer.Client.Desyncs
         }
 
         /// <summary>
+        /// The sections of this game's last join point save, as XML. Every game saves and reloads at a join point, so
+        /// in two games in step they are the same; their hashes go with the fingerprint after the join point, and
+        /// the referee names a section that differs (Desync-16/17: the games split seconds after a join point).
+        /// </summary>
+        private static Dictionary<string, string> saveSections = new();
+
+        public static void HashSave(XmlNode gameNode)
+        {
+            var sections = new Dictionary<string, string>();
+            try
+            {
+                void AddSection(string name, XmlNode node)
+                {
+                    // Components and the world are lists of unrelated parts; name each one
+                    if (node.Name is "components" or "world" && node.HasChildNodes)
+                    {
+                        int i = 0;
+                        foreach (XmlNode child in node.ChildNodes)
+                            sections[$"{name}/{child.Attributes?["Class"]?.Value ?? child.Name}#{i++}"] = child.OuterXml;
+                        return;
+                    }
+                    sections[name] = node.OuterXml;
+                }
+
+                foreach (XmlNode child in gameNode.ChildNodes)
+                    if (child.Name is not ("maps" or "currentMapIndex"))
+                        AddSection("game/" + child.Name, child);
+
+                foreach (XmlNode map in gameNode["maps"]?.ChildNodes ?? (System.Collections.IEnumerable)Array.Empty<XmlNode>())
+                {
+                    var id = map["uniqueID"]?.InnerText ?? "?";
+                    foreach (XmlNode child in map.ChildNodes)
+                        AddSection($"map {id}/{child.Name}", child);
+                }
+            }
+            catch (Exception e)
+            {
+                MpLog.Error($"Couldn't hash the join point save: {e}");
+            }
+            saveSections = sections;
+        }
+
+        /// <summary>Called when the referee reports this game's fingerprint differs after a join point.</summary>
+        public static void OnFingerprintDiffers(string message)
+        {
+            if (!message.Contains("Join point save")) return;
+            try
+            {
+                var names = saveSections.Keys.Where(k => message.Contains(k)).ToList();
+                if (names.Count == 0) names = saveSections.Keys.ToList();
+                var text = string.Join("\n\n", names.Select(n => $"=== {n}\n{saveSections[n]}"));
+                System.IO.Directory.CreateDirectory(Multiplayer.DesyncsDir);
+                var path = System.IO.Path.Combine(Multiplayer.DesyncsDir, $"joinsave-{Multiplayer.username}-{Find.TickManager.TicksGame}.xml.gz");
+                System.IO.File.WriteAllBytes(path, LeafDiff.Gzip(text));
+                MpLog.Warn($"The join point saves differ ({string.Join(", ", names.Take(8))}); this game's sections are in {path}");
+            }
+            catch (Exception e)
+            {
+                MpLog.Error($"Couldn't write the join point save sections: {e}");
+            }
+        }
+
+        /// <summary>
         /// After a join point: send this game's fingerprint again (the server compares it with the host's), and check
         /// that saving and reloading changed none of this game's lanes.
         /// </summary>
@@ -149,7 +213,13 @@ namespace Multiplayer.Client.Desyncs
         {
             try
             {
-                Multiplayer.Client?.SendFragmented(new ClientFingerprintPacket { rows = Build() }.Serialize());
+                var rows = Build().Concat(saveSections.Select(kv => new FingerprintRow
+                {
+                    name = "Join point save: " + kv.Key,
+                    value = FaultSignature.Hash(kv.Value).ToString("X8"),
+                    warn = true
+                })).ToArray();
+                Multiplayer.Client?.SendFragmented(new ClientFingerprintPacket { rows = rows }.Serialize());
             }
             catch (Exception e)
             {

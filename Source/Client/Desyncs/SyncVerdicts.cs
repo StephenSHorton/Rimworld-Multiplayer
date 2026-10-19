@@ -91,6 +91,8 @@ namespace Multiplayer.Client
             }
 
             SoftCount++;
+            if (packet.lane == "fingerprint")
+                Desyncs.JoinFingerprint.OnFingerprintDiffers(packet.message);
             Desyncs.IdLedger.OnLaneDiffers(packet.message);
             MpLog.Warn($"Sync referee (play continues): {who} at tick {packet.tick}: {packet.message}");
             if (sinceLastSoftMessage.ElapsedMilliseconds < SoftMessageEveryMs) return;

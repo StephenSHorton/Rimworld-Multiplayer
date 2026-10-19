@@ -199,6 +199,7 @@ namespace Multiplayer.Client
         {
             XmlNode gameNode = data.SaveData.DocumentElement["game"];
             XmlNode mapsNode = gameNode["maps"];
+            Desyncs.JoinFingerprint.HashSave(gameNode);
 
             var mapCmdsDict = new Dictionary<int, List<ScheduledCommand>>();
             var mapDataDict = new Dictionary<int, byte[]>();
