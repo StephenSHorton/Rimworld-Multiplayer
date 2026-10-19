@@ -58,11 +58,15 @@ namespace Multiplayer.Client.Desyncs
             next = (next + 1) % Kept;
             if (count < Kept) count++;
 
-            // A real id outside ticking, commands and loading is taken on this game only
-            if (!sim && outsideLogged++ < 20)
+            // A real id outside ticking, commands and loading is taken on this game only. Rimkit's Nice Bill Tab
+            // makes a throwaway mech for its stats after loading and puts every id counter back afterwards.
+            if (!sim && !RollsBack(stack) && outsideLogged++ < 20)
                 MpLog.Error($"Took real {(kind == 'J' ? "job" : "thing")} id {id} outside the simulation " +
                             $"(long event: {LongEventHandler.currentEvent?.eventText ?? "none"}); the games' ids will drift apart:\n{Describe(stack, 16)}");
         }
+
+        private static bool RollsBack(StackTrace stack) =>
+            stack.GetFrames().Any(f => f.GetMethod()?.DeclaringType?.Name == "StatMechanoidWorker");
 
         private static string Describe(StackTrace stack, int frames) =>
             string.Join(" < ", stack.GetFrames().Select(f => f.GetMethod()).Where(m => m != null && m.DeclaringType?.Namespace != "HarmonyLib")

@@ -149,6 +149,13 @@ namespace Multiplayer.Client.Desyncs
         /// </summary>
         private static Dictionary<string, string> saveSections = new();
 
+        // Text keeps whichever line endings its game wrote, and archived messages keep the real time and frame
+        // they were shown at on this game
+        private static readonly System.Text.RegularExpressions.Regex PerPlayer =
+            new("<starting(Time|Frame)>[^<]*</starting(Time|Frame)>", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static string ForCompare(string xml) => PerPlayer.Replace(xml.Replace("\r", ""), "");
+
         public static void HashSave(XmlNode gameNode)
         {
             var sections = new Dictionary<string, string>();
@@ -167,8 +174,9 @@ namespace Multiplayer.Client.Desyncs
                     sections[name] = node.OuterXml;
                 }
 
+                // Per player: play time, the camera
                 foreach (XmlNode child in gameNode.ChildNodes)
-                    if (child.Name is not ("maps" or "currentMapIndex"))
+                    if (child.Name is not ("maps" or "currentMapIndex" or "info" or "cameraMap"))
                         AddSection("game/" + child.Name, child);
 
                 foreach (XmlNode map in gameNode["maps"]?.ChildNodes ?? (System.Collections.IEnumerable)Array.Empty<XmlNode>())
@@ -216,7 +224,7 @@ namespace Multiplayer.Client.Desyncs
                 var rows = Build().Concat(saveSections.Select(kv => new FingerprintRow
                 {
                     name = "Join point save: " + kv.Key,
-                    value = FaultSignature.Hash(kv.Value).ToString("X8"),
+                    value = FaultSignature.Hash(ForCompare(kv.Value)).ToString("X8"),
                     warn = true
                 })).ToArray();
                 Multiplayer.Client?.SendFragmented(new ClientFingerprintPacket { rows = rows }.Serialize());
