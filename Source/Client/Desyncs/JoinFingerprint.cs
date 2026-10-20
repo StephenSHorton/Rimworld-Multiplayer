@@ -174,16 +174,17 @@ namespace Multiplayer.Client.Desyncs
                     sections[name] = node.OuterXml;
                 }
 
-                // Per player: play time, the camera
+                // Per player: play time, the camera, the letters on screen (dismissing one isn't synced)
                 foreach (XmlNode child in gameNode.ChildNodes)
-                    if (child.Name is not ("maps" or "currentMapIndex" or "info" or "cameraMap"))
+                    if (child.Name is not ("maps" or "currentMapIndex" or "info" or "cameraMap" or "letterStack"))
                         AddSection("game/" + child.Name, child);
 
                 foreach (XmlNode map in gameNode["maps"]?.ChildNodes ?? (System.Collections.IEnumerable)Array.Empty<XmlNode>())
                 {
                     var id = map["uniqueID"]?.InnerText ?? "?";
                     foreach (XmlNode child in map.ChildNodes)
-                        AddSection($"map {id}/{child.Name}", child);
+                        if (child.Name != "rememberedCameraPos")
+                            AddSection($"map {id}/{child.Name}", child);
                 }
             }
             catch (Exception e)

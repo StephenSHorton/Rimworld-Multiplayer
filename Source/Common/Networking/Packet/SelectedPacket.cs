@@ -17,6 +17,8 @@ public record struct ServerSelectedPacket(int playerId, ClientSelectedPacket dat
 [PacketDefinition(Packets.Client_Selected)]
 public record struct ClientSelectedPacket : IPacket
 {
+    public const int MaxIds = 200;
+
     public bool reset;
     public int[] newlySelectedIds;
     public int[] unselectedIds;
@@ -24,7 +26,7 @@ public record struct ClientSelectedPacket : IPacket
     public void Bind(PacketBuffer buf)
     {
         buf.Bind(ref reset);
-        buf.Bind(ref newlySelectedIds, BinderOf.Int(), maxLength: 200);
-        buf.Bind(ref unselectedIds, BinderOf.Int(), maxLength: 200);
+        buf.Bind(ref newlySelectedIds, BinderOf.Int(), maxLength: MaxIds);
+        buf.Bind(ref unselectedIds, BinderOf.Int(), maxLength: MaxIds);
     }
 }

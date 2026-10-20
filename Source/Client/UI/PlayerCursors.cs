@@ -84,7 +84,13 @@ public class PlayerCursors
 
         lastSelected = selected;
 
-        Multiplayer.Client.Send(new ClientSelectedPacket
-            { reset = reset, newlySelectedIds = add, unselectedIds = remove });
+        // The packet holds at most MaxIds ids per list (a box selection of 455 things threw)
+        for (int i = 0; i == 0 || i < add.Length || i < remove.Length; i += ClientSelectedPacket.MaxIds)
+            Multiplayer.Client.Send(new ClientSelectedPacket
+            {
+                reset = reset && i == 0,
+                newlySelectedIds = add.Skip(i).Take(ClientSelectedPacket.MaxIds).ToArray(),
+                unselectedIds = remove.Skip(i).Take(ClientSelectedPacket.MaxIds).ToArray()
+            });
     }
 }
