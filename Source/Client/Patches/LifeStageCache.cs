@@ -17,11 +17,17 @@ namespace Multiplayer.Client.Patches
     {
         static bool Prefix(Pawn_AgeTracker __instance, ref int __result)
         {
-            if (__instance.cachedLifeStageIndex >= 0 || !NeedCachesOutsideSimulation.InInterface) return true;
+            if (__instance.cachedLifeStageIndex >= 0 || !InInterface) return true;
 
             __result = Compute(__instance);
             return false;
         }
+
+        // Loading must still compute it: the life stage workers skip their effects while loading, and an adult
+        // colonist's worker throws on a first computation in play (no previous stage)
+        static bool InInterface =>
+            NeedCachesOutsideSimulation.InInterface && !Multiplayer.reloading && !ScribeUtil.loading && !LoadGameMarker.loading &&
+            Current.ProgramState == ProgramState.Playing;
 
         // RecalculateLifeStageIndex without its side effects
         static int Compute(Pawn_AgeTracker tracker)
