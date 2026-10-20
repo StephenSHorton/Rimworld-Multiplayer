@@ -148,6 +148,7 @@ namespace Multiplayer.Client.Desyncs
         /// the referee names a section that differs (Desync-16/17: the games split seconds after a join point).
         /// </summary>
         private static Dictionary<string, string> saveSections = new();
+        private static string saveSectionsAt;
 
         // Text keeps whichever line endings its game wrote, and archived messages keep the real time and frame
         // they were shown at on this game
@@ -192,6 +193,9 @@ namespace Multiplayer.Client.Desyncs
                 MpLog.Error($"Couldn't hash the join point save: {e}");
             }
             saveSections = sections;
+            // Two games' sections only compare if they saved at the same point (2026-10-19: one join point's world
+            // pawns were two ticks apart)
+            saveSectionsAt = $"world tick {Multiplayer.AsyncWorldTime?.worldTicks}, map ticks {string.Join(",", Find.Maps.Select(m => m.AsyncTime().mapTicks))}";
         }
 
         /// <summary>Called when the referee reports this game's fingerprint differs after a join point.</summary>
@@ -206,7 +210,7 @@ namespace Multiplayer.Client.Desyncs
                 System.IO.Directory.CreateDirectory(Multiplayer.DesyncsDir);
                 var path = System.IO.Path.Combine(Multiplayer.DesyncsDir, $"joinsave-{Multiplayer.username}-{Find.TickManager.TicksGame}.xml.gz");
                 System.IO.File.WriteAllBytes(path, LeafDiff.Gzip(text));
-                MpLog.Warn($"The join point saves differ ({string.Join(", ", names.Take(8))}); this game's sections are in {path}");
+                MpLog.Warn($"The join point saves differ ({string.Join(", ", names.Take(8))}); this game's sections ({saveSectionsAt}) are in {path}");
             }
             catch (Exception e)
             {
