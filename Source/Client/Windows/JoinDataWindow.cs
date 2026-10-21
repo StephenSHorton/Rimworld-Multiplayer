@@ -54,6 +54,7 @@ namespace Multiplayer.Client
         public Action connectAnywayCallback;
         private ModFileDict filesForUI;
         private ModListDiff modListDiff;
+        private ModListDetails modListDetails;
 
         public JoinDataWindow(RemoteData remote, IConnector connector)
         {
@@ -80,6 +81,7 @@ namespace Multiplayer.Client
         private void CheckModLists()
         {
             modListDiff = remote.CompareMods(JoinData.activeModsSnapshot);
+            modListDetails = JoinData.DiffModList(remote, JoinData.activeModsSnapshot);
         }
 
         private void AddNodesForPath(string path, Node root, NodeStatus status)
@@ -269,8 +271,8 @@ namespace Multiplayer.Client
         private string DiffString()
         {
             var str = "";
-            str += $"RW version match: {remote.remoteMpVersion == MpVersion.Version}, ";
-            str += $"Mod list diff: {modListDiff}, ";
+            str += $"MP version match: {remote.remoteMpVersion == MpVersion.Version}, ";
+            str += $"Mod list diff: {modListDiff}{(modListDetails.Any ? $" ({modListDetails})" : "")}, ";
             str += $"Files match: {!filesRoot.children.Any()}, ";
             str += $"Config sync enabled: {remote.hasConfigs}, ";
             str += $"Configs match: {!configsRoot.children.Any()}";
@@ -293,6 +295,8 @@ namespace Multiplayer.Client
                 Widgets.DrawAltRect(modData);
                 var modListsMatch = modListDiff == ModListDiff.None;
                 Widgets.CheckboxLabeled(modData, "MpMismatchModList".Translate(), ref modListsMatch);
+                if (modListDetails.Any)
+                    TooltipHandler.TipRegion(modData, ModListTip());
                 modData = modData.Down(modDataHeight);
 
                 var modFilesMatch = !filesRoot.children.Any();
@@ -307,6 +311,7 @@ namespace Multiplayer.Client
             GUI.EndGroup();
 
             inRect.yMin += modDataHeight * 3;
+            inRect.yMin += DrawModListSummary(inRect);
 
             using (MpStyle.Set(GameFont.Tiny))
             using (MpStyle.Set(TextAnchor.MiddleCenter))
@@ -354,6 +359,65 @@ namespace Multiplayer.Client
 
                 inRect.yMin += rowHeight * 3 + 30f;
             }
+        }
+
+        // A red line per kind of mod list difference under the General tab's rows, names cut to fit with "+N more";
+        // the tooltip has the full list with package and Workshop ids. Returns the height used.
+        private float DrawModListSummary(Rect inRect)
+        {
+            if (!modListDetails.Any) return 0f;
+
+            const float summaryWidth = 460f;
+
+            using (MpStyle.Set(GameFont.Tiny))
+            using (MpStyle.Set(TextAnchor.UpperCenter))
+            {
+                var lines = modListDetails.Groups()
+                    .Select(g => FitNames(g.label.CapitalizeFirst() + ": ", g.rows, summaryWidth))
+                    .ToList();
+                if (modListDetails.orderDiffers)
+                    lines.Add("Same mods, different load order");
+
+                var lineHeight = Text.LineHeightOf(GameFont.Tiny);
+                var rect = inRect.Height(lines.Count * lineHeight).Width(summaryWidth).CenteredOnXIn(inRect).Down(4f);
+
+                using (MpStyle.Set(modListDetails.SetsDiffer ? Red : Yellow))
+                using (MpStyle.Set(WordWrap.NoWrap))
+                    Widgets.Label(rect, string.Join("\n", lines));
+
+                Widgets.DrawHighlightIfMouseover(rect);
+                TooltipHandler.TipRegion(rect, ModListTip());
+
+                return rect.height + 8f;
+            }
+        }
+
+        private static string FitNames(string prefix, List<ModDiffRow> rows, float width)
+        {
+            string More(int n) => n > 0 ? $" +{n} more" : "";
+
+            var shown = prefix + rows[0].Name;
+            var count = 1;
+            for (; count < rows.Count; count++)
+            {
+                var next = shown + ", " + rows[count].Name;
+                if (Text.CalcSize(next + More(rows.Count - count - 1)).x > width)
+                    break;
+                shown = next;
+            }
+
+            var more = More(rows.Count - count);
+            return shown.Truncate(width - Text.CalcSize(more).x) + more;
+        }
+
+        private string ModListTip()
+        {
+            var tip = modListDetails.Groups()
+                .Select(g => g.label.CapitalizeFirst() + ":\n" + string.Join("\n", g.rows.Select(r => "  " + r)))
+                .ToList();
+            if (modListDetails.orderDiffers)
+                tip.Add("Same mods, different load order");
+            return string.Join("\n\n", tip);
         }
 
         private Vector2 treeScroll;
@@ -679,12 +743,30 @@ namespace Multiplayer.Client
 
     public class FixAndRestartWindow : Window
     {
+        private enum Stage
+        {
+            Choose, Downloading, CannotFix
+        }
+
         private RemoteData data;
         private IConnector connector;
         private bool applyModList = true;
         private bool applyConfigs;
 
-        public override Vector2 InitialSize => new(400, 200);
+        private Stage stage;
+        private List<ModInfo> missing = new();
+        private Dictionary<ulong, string> downloadStatus = new();
+        private float nextPoll;
+        private float nextRequest;
+        private Vector2 listScroll;
+
+        private const float PollInterval = 0.5f;    // Seconds between Steam state polls
+        private const float RequestInterval = 5f;   // Seconds before asking Steam again for an item that isn't moving
+        private const float RowHeight = 24f;
+
+        public override Vector2 InitialSize => stage == Stage.Choose
+            ? new(400, 200)
+            : new(480, Mathf.Clamp(160 + missing.Count * RowHeight, 220, 480));
 
         public FixAndRestartWindow(RemoteData data, IConnector connector)
         {
@@ -697,8 +779,26 @@ namespace Multiplayer.Client
             absorbInputAroundWindow = true;
         }
 
+        private void SetStage(Stage newStage)
+        {
+            stage = newStage;
+            SetInitialSizeAndPosition();
+        }
+
         public override void DoWindowContents(Rect inRect)
         {
+            if (stage == Stage.Downloading)
+            {
+                DrawDownloading(inRect);
+                return;
+            }
+
+            if (stage == Stage.CannotFix)
+            {
+                DrawCannotFix(inRect);
+                return;
+            }
+
             var line = inRect.Height(30f);
             MpUI.CheckboxLabeledWithTip(
                 line,
@@ -734,20 +834,191 @@ namespace Multiplayer.Client
         {
             if (applyModList)
             {
-                ModsConfig.data.activeMods = data.remoteMods.Select(m =>
+                // Restarting into a mod list with uninstalled mods only fails the join again,
+                // so fetch them from the Workshop first or tell the player where to get them
+                JoinData.ClearInstalledCache();
+                missing = data.remoteMods.Where(m => !m.Installed).ToList();
+
+                if (missing.Any())
                 {
-                    var activeMod =
-                        ModsConfig.ActiveModsInLoadOrder.FirstOrDefault(a => a.PackageIdNonUnique == m.packageId);
-                    if (activeMod != null)
-                        return activeMod.PackageId;
+                    if (SteamManager.Initialized && missing.All(m => m.CanSubscribe))
+                        StartDownloads();
+                    else
+                    {
+                        Log.Message($"Multiplayer: Fix and restart can't download {string.Join(", ", missing.Select(Row))}" +
+                                    (SteamManager.Initialized ? "" : " (Steam not running)"));
+                        SetStage(Stage.CannotFix);
+                    }
 
-                    if (!m.packageId.Contains("ludeon"))
-                        return m.packageId +
-                               ModMetaData.SteamModPostfix; // Prefer the Steam version for new mods on the list
+                    return;
+                }
+            }
 
-                    return m.packageId;
-                }).ToList();
+            Restart();
+        }
 
+        private static ModDiffRow Row(ModInfo m) => new(m.name, m.packageId, m.steamId);
+
+        private void StartDownloads()
+        {
+            Log.Message($"Multiplayer: Fix and restart is subscribing to {string.Join(", ", missing.Select(Row))}");
+
+            foreach (var m in missing)
+            {
+                var id = new PublishedFileId_t(m.steamId);
+                SteamUGC.SubscribeItem(id);
+                SteamUGC.DownloadItem(id, true);
+            }
+
+            downloadStatus.Clear();
+            nextPoll = 0f;
+            nextRequest = Time.realtimeSinceStartup + RequestInterval;
+            SetStage(Stage.Downloading);
+        }
+
+        private void PollDownloads()
+        {
+            var now = Time.realtimeSinceStartup;
+            if (now < nextPoll) return;
+            nextPoll = now + PollInterval;
+
+            var request = now >= nextRequest;
+            if (request)
+                nextRequest = now + RequestInterval;
+
+            const EItemState busy =
+                EItemState.k_EItemStateDownloading | EItemState.k_EItemStateDownloadPending | EItemState.k_EItemStateNeedsUpdate;
+
+            var allDone = true;
+            foreach (var m in missing)
+            {
+                var id = new PublishedFileId_t(m.steamId);
+                var state = (EItemState)SteamUGC.GetItemState(id);
+                var subscribed = state.HasFlag(EItemState.k_EItemStateSubscribed);
+                var done = subscribed && state.HasFlag(EItemState.k_EItemStateInstalled) && (state & busy) == 0;
+
+                string status;
+                if (done)
+                    status = "Installed";
+                else if (state.HasFlag(EItemState.k_EItemStateDownloading) &&
+                         SteamUGC.GetItemDownloadInfo(id, out var bytesDone, out var bytesTotal) && bytesTotal > 0)
+                    status = $"Downloading {(float)bytesDone / bytesTotal:P0}";
+                else if ((state & (EItemState.k_EItemStateDownloading | EItemState.k_EItemStateDownloadPending)) != 0)
+                    status = "Queued";
+                else if (!subscribed)
+                    status = "Subscribing";
+                else
+                    status = "Waiting for Steam";
+
+                downloadStatus[m.steamId] = status;
+
+                if (done) continue;
+                allDone = false;
+
+                // Not moving: ask again in case Steam dropped the first request
+                if (request && (state & busy) == 0)
+                {
+                    if (!subscribed)
+                        SteamUGC.SubscribeItem(id);
+                    SteamUGC.DownloadItem(id, true);
+                }
+            }
+
+            if (!allDone) return;
+
+            // Steam can report an item installed before the ItemInstalled callback that rebuilds
+            // RimWorld's Workshop list has run, so rebuild that list here before the mod list
+            WorkshopItems.RebuildItemsList();
+            JoinData.ClearInstalledCache();
+            ModLister.RebuildModList();
+
+            if (missing.All(m => m.Installed))
+            {
+                Log.Message($"Multiplayer: Fix and restart downloaded {string.Join(", ", missing.Select(Row))}, restarting");
+                Restart();
+            }
+            else
+            {
+                // Not listed by RimWorld yet; the mod list rebuild is heavy, so wait longer before the next try
+                nextPoll = now + 2f;
+            }
+        }
+
+        private void DrawModRows(Rect rect, Func<ModInfo, string> status)
+        {
+            var viewRect = new Rect(0, 0, rect.width - 16f, missing.Count * RowHeight);
+            Widgets.BeginScrollView(rect, ref listScroll, viewRect);
+            {
+                for (int i = 0; i < missing.Count; i++)
+                {
+                    var m = missing[i];
+                    var row = new Rect(0, i * RowHeight, viewRect.width, RowHeight);
+                    if (i % 2 == 0)
+                        Widgets.DrawAltRect(row);
+                    TooltipHandler.TipRegion(row, Row(m).ToString());
+
+                    var statusStr = status(m);
+
+                    using (MpStyle.Set(TextAnchor.MiddleLeft))
+                    using (MpStyle.Set(WordWrap.NoWrap))
+                    {
+                        var statusWidth = Text.CalcSize(statusStr).x + 10f;
+                        Widgets.Label(row.MinX(5f).Width(row.width - statusWidth - 5f), m.name.Truncate(row.width - statusWidth - 5f));
+                        using (MpStyle.Set(new Color(0.7f, 0.7f, 0.7f)))
+                            Widgets.Label(row.MinX(row.xMax - statusWidth), statusStr);
+                    }
+                }
+            }
+            Widgets.EndScrollView();
+        }
+
+        private void DrawDownloading(Rect inRect)
+        {
+            PollDownloads();
+
+            const float headerHeight = 50f;
+            const float btnHeight = 35f;
+
+            Widgets.Label(inRect.Height(headerHeight),
+                "Downloading the host's mods from the Steam Workshop. RimWorld restarts and rejoins when they are installed.");
+
+            var list = inRect.MinY(inRect.y + headerHeight).MaxY(inRect.yMax - btnHeight - 10f);
+            DrawModRows(list, m => downloadStatus.TryGetValue(m.steamId, out var s) ? s : "Subscribing");
+
+            var cancel = new Rect(0, 0, 110f, btnHeight).CenterOn(inRect.BottomPartPixels(btnHeight));
+            if (Widgets.ButtonText(cancel, "CancelButton".Translate()))
+            {
+                Log.Message("Multiplayer: Fix and restart download cancelled");
+                SetStage(Stage.Choose);
+            }
+        }
+
+        private void DrawCannotFix(Rect inRect)
+        {
+            const float headerHeight = 80f;
+            const float btnHeight = 35f;
+
+            var why = SteamManager.Initialized
+                ? "These mods are not installed here and not all of them are on the Steam Workshop."
+                : "These mods are not installed here and Steam is not running, so they can't be downloaded.";
+
+            using (MpStyle.Set(new Color(1f, 0.6f, 0.6f)))
+                Widgets.Label(inRect.Height(headerHeight),
+                    why + " Get them from the host, install them and try again. Nothing was changed.");
+
+            var list = inRect.MinY(inRect.y + headerHeight).MaxY(inRect.yMax - btnHeight - 10f);
+            DrawModRows(list, m => m.CanSubscribe ? $"workshop {m.steamId}" : m.packageId);
+
+            var back = new Rect(0, 0, 110f, btnHeight).CenterOn(inRect.BottomPartPixels(btnHeight));
+            if (Widgets.ButtonText(back, "MpMismatchBack".Translate()))
+                SetStage(Stage.Choose);
+        }
+
+        private void Restart()
+        {
+            if (applyModList)
+            {
+                ModsConfig.data.activeMods = data.remoteMods.Select(JoinData.ResolveInstalledId).ToList();
                 ModsConfig.Save();
             }
 
