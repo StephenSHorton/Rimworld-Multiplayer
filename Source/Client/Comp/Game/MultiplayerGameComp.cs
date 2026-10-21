@@ -18,6 +18,11 @@ namespace Multiplayer.Client.Comp
         public PauseOnLetter pauseOnLetter;
         public TimeControl timeControl;
         public Dictionary<int, PlayerData> playerData = new(); // player id to player data
+
+        // Username to the faction that player last played (multifaction). Saved so a rejoin or a later hosting of the
+        // save puts the player back in it; written by the host at host time and by SetPlayerFaction commands, read only
+        // when hosting (copied to the server). The simulation never reads it
+        public Dictionary<string, int> playerFactions = new();
         public int nextSessionId;
 
         public string idBlockBase64;
@@ -36,6 +41,12 @@ namespace Multiplayer.Client.Comp
             Scribe_Values.Look(ref pauseOnLetter, "pauseOnLetter");
             Scribe_Values.Look(ref timeControl, "timeControl");
             Scribe_Values.Look(ref nextSessionId, "nextSessionId");
+
+            // Not written while empty, so a save without multifaction stays as it was
+            if (Scribe.mode != LoadSaveMode.Saving || playerFactions.Count > 0)
+                Scribe_Collections.Look(ref playerFactions, "playerFactions", LookMode.Value, LookMode.Value);
+            if (Scribe.mode == LoadSaveMode.LoadingVars)
+                playerFactions ??= new();
 
             // Store for back-compat conversion in GameExposeComponentsPatch
             if (Scribe.mode == LoadSaveMode.LoadingVars)

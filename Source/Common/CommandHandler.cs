@@ -26,6 +26,10 @@ namespace Multiplayer.Common
                 if (cmdType == CommandType.Chunk && !CommandChunks.TryReadHeader(data, out policyType, out syncId))
                     return;
 
+                // Only the server issues these; a client sending one (plain or chunked) could rewrite player data
+                if (policyType is CommandType.SetPlayerFaction or CommandType.InitPlayerData)
+                    return;
+
                 bool debugCmd =
                     policyType == CommandType.DebugTools ||
                     policyType == CommandType.Sync && server.InitData!.DebugOnlySyncCmds.Contains(syncId);

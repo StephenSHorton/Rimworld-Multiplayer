@@ -17,6 +17,15 @@ namespace Multiplayer.Client
 {
     public static class HostUtil
     {
+        // Raised when a single-player game (not a replay) is about to be hosted, before anything is changed; the
+        // argument is the multifaction setting. A handler may change the game (Rimkit splits planned colonies into
+        // player factions here). A throw cancels hosting and leaves the single-player game running
+        public static event Action<bool> BeforeHostFromSingleplayer;
+
+        // Raised while a single-player game is set up for hosting, after every player faction has its world data
+        // (factionData, ReassignIds) and before the maps are set up. A throw is logged and hosting continues
+        public static event Action AfterFactionDataCreated;
+
         // Host entry points:
         // - singleplayer save, server browser
         // - singleplayer save, ingame
@@ -26,10 +35,26 @@ namespace Multiplayer.Client
         {
             Log.Message("Starting the server");
 
+            if (!fromReplay && BeforeHostFromSingleplayer != null)
+            {
+                try
+                {
+                    BeforeHostFromSingleplayer(settings.multifaction);
+                }
+                catch (Exception e)
+                {
+                    // This runs before the first await, so hosting stops here and the caller sees no session
+                    Log.Error($"MP: hosting cancelled by a BeforeHostFromSingleplayer handler: {e}");
+                    Messages.Message($"Hosting cancelled: {e.Message}", MessageTypeDefOf.RejectInput, false);
+                    Multiplayer.StopMultiplayer();
+                    return;
+                }
+            }
+
             CreateSession(settings);
 
             if (!fromReplay)
-                SetupGameFromSingleplayer();
+                SetupGameFromSingleplayer(settings.multifaction);
 
             // Server already pre-inited in HostWindow
             PrepareLocalServer(settings, fromReplay);
@@ -64,6 +89,10 @@ namespace Multiplayer.Client
             localServer.hostUsername = Multiplayer.username;
             localServer.worldData.hostFactionId = Faction.OfPlayer.loadID;
             localServer.worldData.spectatorFactionId = Multiplayer.WorldComp.spectatorFaction.loadID;
+
+            // Faction reservations kept in the save (always empty without multifaction)
+            foreach (var (username, factionId) in Multiplayer.GameComp.playerFactions)
+                localServer.worldData.playerFactions[username] = factionId;
 
             if (fromReplay)
             {
@@ -112,7 +141,7 @@ namespace Multiplayer.Client
             return SaveLoad.CreateGameDataSnapshot(SaveLoad.SaveAndReload(), Multiplayer.GameComp.multifaction);
         }
 
-        private static void SetupGameFromSingleplayer()
+        private static void SetupGameFromSingleplayer(bool multifaction)
         {
             var worldComp = new MultiplayerWorldComp(Find.World);
 
@@ -123,7 +152,9 @@ namespace Multiplayer.Client
                 worldComp = worldComp
             };
 
-            Faction.OfPlayer.Name = $"{Multiplayer.username}'s faction";
+            // With multifaction, a faction name the player chose is kept
+            if (!multifaction || !Faction.OfPlayer.HasName)
+                Faction.OfPlayer.Name = $"{Multiplayer.username}'s faction";
 
             var spectator = AddNewFaction("Spectator", FactionDefOf.PlayerColony);
             spectator.hidden = true;
@@ -136,7 +167,7 @@ namespace Multiplayer.Client
             foreach (var faction in Find.FactionManager.AllFactions.Where(f => f.IsPlayer))
                 if (faction != Faction.OfPlayer)
                 {
-                    var factionData = FactionWorldData.New(spectator.loadID);
+                    var factionData = FactionWorldData.New(faction.loadID);
                     worldComp.factionData[faction.loadID] = factionData;
 
                     factionData.researchManager.progress = new(playerFactionData.researchManager.progress);
@@ -154,10 +185,50 @@ namespace Multiplayer.Client
             foreach (FactionWorldData data in worldComp.factionData.Values)
                 data.ReassignIds();
 
+            if (AfterFactionDataCreated != null)
+            {
+                try
+                {
+                    AfterFactionDataCreated();
+                }
+                catch (Exception e)
+                {
+                    Log.Error($"MP: AfterFactionDataCreated handler failed: {e}");
+                }
+            }
+
             foreach (Map map in Find.Maps)
             {
-                MapSetup.SetupMap(map, true);
+                MapSetup.SetupMap(map, true, multifaction ? MapSetup.OwnerAtHostTime(map) : null);
             }
+        }
+
+        // Records that a username plays a faction, so that player joins straight into it (multifaction); saved with
+        // the game. For AfterFactionDataCreated handlers (before that there is no game comp to write to)
+        public static void ReservePlayerFaction(string username, int factionId)
+        {
+            var gameComp = Multiplayer.game?.gameComp;
+            if (username.NullOrEmpty() || gameComp == null)
+                return;
+            gameComp.playerFactions[username] = factionId;
+        }
+
+        // The default apparel, drug and food policies of a player faction's own databases (its multifaction world
+        // data). For AfterFactionDataCreated handlers
+        public static bool TryGetFactionDefaultPolicies(int factionId, out ApparelPolicy apparel, out DrugPolicy drug, out FoodPolicy food)
+        {
+            apparel = null;
+            drug = null;
+            food = null;
+
+            var worldComp = Multiplayer.game?.worldComp;
+            if (worldComp == null || !worldComp.factionData.TryGetValue(factionId, out var data))
+                return false;
+
+            apparel = data.outfitDatabase?.DefaultOutfit();
+            drug = data.drugPolicyDatabase?.DefaultDrugPolicy();
+            food = data.foodRestrictionDatabase?.DefaultFoodRestriction();
+            return apparel != null && drug != null && food != null;
         }
 
         public static Faction AddNewFaction(string name, FactionDef def)

@@ -17,9 +17,12 @@ public static class MapSetup
         extraInitBeforeContentGen += map => SetupMap(map);
     }
 
-    public static void SetupMap(Map map, bool usingMapTimeFromSingleplayer = false)
+    // owner: the faction that gets the map's current managers (zones, areas, designations, unforbidden things);
+    // null means Faction.OfPlayer, as for every map generated in a session
+    public static void SetupMap(Map map, bool usingMapTimeFromSingleplayer = false, Faction owner = null)
     {
-        Log.Message("MP: Setting up map " + map.uniqueID);
+        owner ??= Faction.OfPlayer;
+        Log.Message("MP: Setting up map " + map.uniqueID + (owner != Faction.OfPlayer ? $" for faction {owner.loadID}" : ""));
 
         // Initialize and store Multiplayer
 
@@ -29,13 +32,23 @@ public static class MapSetup
         var async = CreateAsyncTimeCompForMap(map, usingMapTimeFromSingleplayer);
         Multiplayer.game.asyncTimeComps.Add(async);
 
-        // Store all current managers for Faction.OfPlayer
-        InitFactionDataFromMap(map, Faction.OfPlayer);
+        // Store all current managers for the owner
+        InitFactionDataFromMap(map, owner);
 
-        // Add all other (non Faction.OfPlayer) factions to the map
+        // Add all other player factions to the map
         foreach (var faction in Find.FactionManager.AllFactions.Where(f => f.IsPlayer))
-            if (faction != Faction.OfPlayer)
+            if (faction != owner)
                 InitNewFactionData(map, faction);
+    }
+
+    // Who owns a single-player map when a game is hosted with multifaction: the map's settlement faction when that
+    // is a player faction other than the spectator (a colony split off at host time), else the host's faction
+    public static Faction OwnerAtHostTime(Map map)
+    {
+        var parentFaction = map.ParentFaction;
+        if (parentFaction != null && parentFaction.IsPlayer && parentFaction != Multiplayer.WorldComp.spectatorFaction)
+            return parentFaction;
+        return Faction.OfPlayer;
     }
 
     private static AsyncTimeComp CreateAsyncTimeCompForMap(Map map, bool usingMapTimeFromSingleplayer)

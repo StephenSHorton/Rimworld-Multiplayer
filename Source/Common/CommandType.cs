@@ -20,4 +20,7 @@ public enum CommandType : byte
 
     // Any scope: one part of a command too big for one packet (see CommandChunks)
     Chunk,
+
+    // Global scope, server only: records which faction a username plays (saved in MultiplayerGameComp.playerFactions)
+    SetPlayerFaction,
 }

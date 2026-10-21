@@ -139,9 +139,13 @@ namespace Multiplayer.Common
             var standalonePrimaryPlayer = server.IsStandaloneServer &&
                 !server.JoinedPlayers.Any(p => p != player && !p.IsArbiter);
 
-            player.FactionId = standalonePrimaryPlayer || player.id == 0 || !server.settings.multifaction ?
-                server.worldData.hostFactionId :
-                server.worldData.spectatorFactionId;
+            if (standalonePrimaryPlayer || player.id == 0 || !server.settings.multifaction)
+                player.FactionId = server.worldData.hostFactionId;
+            // Multifaction: a username that played a faction before (or was given one at host time) goes back to it
+            else if (!player.IsArbiter && server.worldData.playerFactions.TryGetValue(player.Username, out var savedFaction))
+                player.FactionId = savedFaction;
+            else
+                player.FactionId = server.worldData.spectatorFactionId;
 
             server.SendNotification("MpPlayerConnected", player.Username);
             server.SendChat($"{player.Username} has joined.");

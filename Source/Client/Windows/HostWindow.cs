@@ -477,7 +477,16 @@ namespace Multiplayer.Client
             return invalidEndpoint == null;
         }
 
-        public static bool HostProgrammatically(ServerSettings sourceSettings)
+        // Hosts the running single-player game with no dialog
+        public static bool HostProgrammatically(ServerSettings sourceSettings) =>
+            HostProgrammaticallyImpl(sourceSettings, false);
+
+        // Hosts the replay that is loaded now (Multiplayer.IsReplay) with no dialog. A separate name rather than an
+        // overload: callers find HostProgrammatically by name through reflection, which an overload makes ambiguous
+        public static bool HostReplayProgrammatically(ServerSettings sourceSettings) =>
+            Multiplayer.IsReplay && HostProgrammaticallyImpl(sourceSettings, true);
+
+        private static bool HostProgrammaticallyImpl(ServerSettings sourceSettings, bool fromReplay)
         {
             var settings = MpUtil.ShallowCopy(sourceSettings, new ServerSettings());
 
@@ -490,7 +499,7 @@ namespace Multiplayer.Client
             if (!TryStartLocalServer(settings))
                 return false;
 
-            HostUtil.HostServer(settings, false);
+            HostUtil.HostServer(settings, fromReplay);
             return true;
         }
 

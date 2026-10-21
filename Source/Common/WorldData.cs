@@ -10,6 +10,10 @@ public class WorldData
 {
     public int hostFactionId;
     public int spectatorFactionId;
+
+    // Username to the faction it last played, used to place a joiner in multifaction. Filled from the host's save
+    // when hosting and on every accepted faction change; always empty with multifaction off
+    public Dictionary<string, int> playerFactions = new(StringComparer.Ordinal);
     public byte[]? savedGame; // Compressed game save
     public byte[]? sessionData; // Compressed semi persistent data
     public Dictionary<int, byte[]> mapData = new(); // Map id to compressed map data

@@ -234,6 +234,13 @@ public class AsyncWorldTimeComp : IExposable, ITickable
                 Multiplayer.GameComp.playerData[playerId] = new PlayerData { canUseDevMode = canUseDevMode };
             }
 
+            if (cmdType == CommandType.SetPlayerFaction)
+            {
+                var username = data.ReadString();
+                var factionId = data.ReadInt32();
+                Multiplayer.GameComp.playerFactions[username] = factionId;
+            }
+
             if (cmdType == CommandType.PlayerCount)
             {
                 int previousMapId = data.ReadInt32();

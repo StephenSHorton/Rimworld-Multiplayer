@@ -267,16 +267,27 @@ namespace Multiplayer.Common
         [TypedPacketHandler]
         public void HandleSetFaction(ClientSetFactionPacket packet)
         {
-            // todo restrict handling
-
             int playerId = packet.playerId;
             int factionId = packet.factionId;
+
+            // Only the host moves other players; everyone else can only move themselves
+            if (!Player.IsHost && playerId != Player.id) return;
 
             var player = Server.GetPlayer(playerId);
             if (player == null) return;
             if (player.FactionId == factionId) return;
 
             player.FactionId = factionId;
+
+            // Remember the choice so a rejoin, or a later hosting of the same save, lands in the same faction.
+            // Every game writes it into its save at the same tick through the command
+            if (Server.settings.multifaction && !player.IsArbiter)
+            {
+                Server.worldData.playerFactions[player.Username] = factionId;
+                Server.commands.Send(CommandType.SetPlayerFaction, ScheduledCommand.NoFaction, ScheduledCommand.Global,
+                    ByteWriter.GetBytes(player.Username, factionId));
+            }
+
             Server.SendToPlaying(new ServerSetFactionPacket(playerId, factionId));
         }
 
