@@ -258,7 +258,7 @@ namespace Multiplayer.Client.Desyncs
                     var map = Find.Maps.FirstOrDefault(m => m.uniqueID == mapId);
                     if (map == null) continue;
                     var afterLeaves = string.Join("\n", SyncLanes.Leaves(map, parts[1]));
-                    if (OnlySaveRounding(before, afterLeaves))
+                    if (OnlyReloadEffects(before, afterLeaves, mapTicksBefore.TryGetValue(mapId, out var savedAt) ? savedAt : null))
                     {
                         changed.Remove(key);
                         continue;
@@ -269,7 +269,7 @@ namespace Multiplayer.Client.Desyncs
 
             if (changed.Count == 0)
             {
-                MpLog.Log($"Join point self-check: all {after.Count} lanes are the same after saving and reloading (plant growth rounded by the save)");
+                MpLog.Log($"Join point self-check: all {after.Count} lanes are the same after saving and reloading (plant growth rounded by the save, cold plants made leafless again on load)");
                 return;
             }
 
@@ -278,10 +278,15 @@ namespace Multiplayer.Client.Desyncs
         }
 
         /// <summary>
-        /// Saves store plant growth as a byte, rounded up to the next 1/255, and every game reloads at a join point,
-        /// so that change is the same everywhere. True when nothing else differs.
+        /// Changes every game makes the same way, since every game reloads at a join point. True when nothing else
+        /// differs:
+        /// - saves store plant growth as a byte, rounded up to the next 1/255;
+        /// - loading runs Plant.PostMapInit, which makes a plant that's cold now leafless again at the map's saved
+        ///   tick, while the live game's plants keep the tick of their last load or long tick. Every load also ticks
+        ///   each map once (LoadPatch), so a map left paused since the host's reload is one tick past it: the first
+        ///   join point after a host at tick 8 showed every cold plant as leafless 8 (before) vs 9 (after), 2026-10-20
         /// </summary>
-        private static bool OnlySaveRounding(string before, string after)
+        private static bool OnlyReloadEffects(string before, string after, int? reloadTick)
         {
             var a = Index(before);
             var b = Index(after);
@@ -299,6 +304,7 @@ namespace Multiplayer.Client.Desyncs
                     fa.TryGetValue(key, out var va);
                     fb.TryGetValue(key, out var vb);
                     if (va == vb) continue;
+                    if (key == "leafless" && reloadTick is { } tick && vb == tick.ToString(CultureInfo.InvariantCulture)) continue;
                     if (key != "growth" || !TryFloat(va, out var x) || !TryFloat(vb, out var y) || Math.Abs(x - y) > 1f / 255f + 1e-6f)
                         return false;
                 }
@@ -325,12 +331,16 @@ namespace Multiplayer.Client.Desyncs
             return float.TryParse(slash < 0 ? leafValue : leafValue.Substring(0, slash), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
 
+        // Each map's tick when the join point saved it, which its reload runs PostMapInit at
+        private static Dictionary<int, int> mapTicksBefore = new();
+
         /// <summary>The lanes and entity leaves before a join point's save, for <see cref="AfterJoinPoint"/>.</summary>
         public static (Dictionary<string, ulong> lanes, Dictionary<string, string> leaves) BeforeJoinPoint()
         {
             try
             {
                 var lanes = SyncLanes.ComputeAll();
+                mapTicksBefore = Find.Maps.ToDictionary(m => m.uniqueID, m => m.AsyncTime().mapTicks);
                 var leaves = new Dictionary<string, string>();
                 foreach (var map in Find.Maps)
                     foreach (var lane in new[] { "pawns", "things", "plants" })
