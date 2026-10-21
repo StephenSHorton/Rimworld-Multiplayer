@@ -1007,7 +1007,7 @@ namespace Multiplayer.Client
                     why + " Get them from the host, install them and try again. Nothing was changed.");
 
             var list = inRect.MinY(inRect.y + headerHeight).MaxY(inRect.yMax - btnHeight - 10f);
-            DrawModRows(list, m => m.CanSubscribe ? $"workshop {m.steamId}" : m.packageId);
+            DrawModRows(list, m => m.CanSubscribe ? $"workshop {m.steamId}" : m.packageId.StartsWith("ludeon.") ? "DLC, from Steam" : m.packageId);
 
             var back = new Rect(0, 0, 110f, btnHeight).CenterOn(inRect.BottomPartPixels(btnHeight));
             if (Widgets.ButtonText(back, "MpMismatchBack".Translate()))
