@@ -359,12 +359,39 @@ namespace Multiplayer.Client
             return Mix(sum, pawns.Count);
         }
 
-        private static ulong ZonesLane(Map map)
+        // Zones, areas and designations belong to a player faction, and the map holds the managers of the local
+        // player's faction, so with multifaction the host and a client in another faction would compare different
+        // factions' managers. With multifaction these lanes cover every player faction's managers, by faction id.
+        private static IEnumerable<FactionMapData> PlayerFactionData(Map map)
+        {
+            foreach (var pair in map.MpComp().factionData)
+                if (pair.Value is { zoneManager: not null, areaManager: not null, designationManager: not null })
+                    yield return pair.Value;
+        }
+
+        private static ulong PerFaction(Map map, Func<ZoneManager, AreaManager, DesignationManager, ulong> hash)
+        {
+            if (!Multiplayer.GameComp.multifaction)
+                return hash(map.zoneManager, map.areaManager, map.designationManager);
+
+            ulong sum = 0;
+            unchecked
+            {
+                foreach (var data in PlayerFactionData(map))
+                    sum += Mix(Mix(0xFAC7, data.factionId), hash(data.zoneManager, data.areaManager, data.designationManager));
+            }
+            return sum;
+        }
+
+        private static ulong ZonesLane(Map map) =>
+            PerFaction(map, (zoneManager, areaManager, _) => ZonesHash(zoneManager, areaManager));
+
+        private static ulong ZonesHash(ZoneManager zoneManager, AreaManager areaManager)
         {
             ulong sum = 0;
             unchecked
             {
-                foreach (var zone in map.zoneManager.AllZones)
+                foreach (var zone in zoneManager.AllZones)
                 {
                     ulong cells = 0;
                     foreach (var c in zone.cells)
@@ -372,7 +399,7 @@ namespace Multiplayer.Client
                     sum += Mix(Mix((ulong)(uint)zone.ID, cells), zone.cells.Count);
                 }
 
-                foreach (var area in map.areaManager.AllAreas)
+                foreach (var area in areaManager.AllAreas)
                 {
                     ulong cells = 0;
                     var arr = area.innerGrid.arr;
@@ -385,12 +412,15 @@ namespace Multiplayer.Client
             return sum;
         }
 
-        private static ulong DesignationsLane(Map map)
+        private static ulong DesignationsLane(Map map) =>
+            PerFaction(map, (_, _, designationManager) => DesignationsHash(designationManager));
+
+        private static ulong DesignationsHash(DesignationManager designationManager)
         {
             ulong sum = 0;
             unchecked
             {
-                foreach (var pair in map.designationManager.designationsByDef)
+                foreach (var pair in designationManager.designationsByDef)
                     foreach (var d in pair.Value)
                     {
                         ulong h = Mix(0, d.def);
@@ -465,17 +495,23 @@ namespace Multiplayer.Client
                     break;
                 case "designations":
                 {
-                    foreach (var pair in map.designationManager.designationsByDef)
-                        foreach (var d in pair.Value)
-                            lines.Add((0, $"{d.def?.defName}@{(d.target.HasThing ? d.target.Thing.ThingID : d.target.Cell.x + "," + d.target.Cell.z)} present"));
+                    // With multifaction each line starts with its faction ("f17/"), as the lane covers every faction
+                    foreach (var (prefix, _, _, designationManager) in LeafManagers(map))
+                        foreach (var pair in designationManager.designationsByDef)
+                            foreach (var d in pair.Value)
+                                lines.Add((0, $"{prefix}{d.def?.defName}@{(d.target.HasThing ? d.target.Thing.ThingID : d.target.Cell.x + "," + d.target.Cell.z)} present"));
                     lines.Sort((a, b) => string.CompareOrdinal(a.line, b.line));
                     return lines.Select(l => l.line).ToList();
                 }
                 case "zones":
-                    foreach (var zone in map.zoneManager.AllZones)
-                        lines.Add((zone.ID, $"zone{zone.ID} type={zone.GetType().Name} cells={zone.cells.Count}"));
-                    foreach (var area in map.areaManager.AllAreas)
-                        lines.Add((1_000_000 + area.ID, $"area{area.ID} type={area.GetType().Name} cells={area.TrueCount}"));
+                    // Zone and area ids are unique in the game, so the id still sorts lines across factions
+                    foreach (var (prefix, zoneManager, areaManager, _) in LeafManagers(map))
+                    {
+                        foreach (var zone in zoneManager.AllZones)
+                            lines.Add((zone.ID, $"{prefix}zone{zone.ID} type={zone.GetType().Name} cells={zone.cells.Count}"));
+                        foreach (var area in areaManager.AllAreas)
+                            lines.Add((1_000_000 + area.ID, $"{prefix}area{area.ID} type={area.GetType().Name} cells={area.TrueCount}"));
+                    }
                     break;
                 case "thoughts":
                     // Diagnosis: memories and the cached situational thoughts as they are, nothing recalculated
@@ -509,6 +545,19 @@ namespace Multiplayer.Client
 
             lines.Sort((a, b) => a.id.CompareTo(b.id));
             return lines.Select(l => l.line).ToList();
+        }
+
+        // The managers the zones and designations lanes cover, with the prefix that names their faction in a leaf line
+        private static IEnumerable<(string prefix, ZoneManager zones, AreaManager areas, DesignationManager designations)> LeafManagers(Map map)
+        {
+            if (!Multiplayer.GameComp.multifaction)
+            {
+                yield return ("", map.zoneManager, map.areaManager, map.designationManager);
+                yield break;
+            }
+
+            foreach (var data in PlayerFactionData(map))
+                yield return ($"f{data.factionId}/", data.zoneManager, data.areaManager, data.designationManager);
         }
 
         private static string Bits(float f) => $"{f:R}/{BitConverter.SingleToInt32Bits(f):X8}";
