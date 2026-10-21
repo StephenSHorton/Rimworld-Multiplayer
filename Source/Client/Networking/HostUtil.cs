@@ -207,9 +207,16 @@ namespace Multiplayer.Client
         // the game. For AfterFactionDataCreated handlers (before that there is no game comp to write to)
         public static void ReservePlayerFaction(string username, int factionId)
         {
-            var gameComp = Multiplayer.game?.gameComp;
-            if (username.NullOrEmpty() || gameComp == null)
+            if (username.NullOrEmpty())
                 return;
+
+            var gameComp = Multiplayer.game?.gameComp;
+            if (gameComp == null)
+            {
+                Log.Warning($"MP: ReservePlayerFaction({username}, {factionId}) called before the game was set up; ignored");
+                return;
+            }
+
             gameComp.playerFactions[username] = factionId;
         }
 
