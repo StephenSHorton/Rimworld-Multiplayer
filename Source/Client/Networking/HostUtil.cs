@@ -180,6 +180,11 @@ namespace Multiplayer.Client
                         foreach (var (def, value) in playerFactionData.researchManager.tabInfoVisibility)
                             factionData.researchManager.tabInfoVisibility[def] = value;
                     }
+
+                    // With multifaction, a player faction other than the spectator existed in the single-player game
+                    // (Rimkit splits played colonies into such factions), so it keeps the host's settings and history
+                    if (multifaction && faction != spectator)
+                        SeedFromHost(factionData, playerFactionData);
                 }
 
             foreach (FactionWorldData data in worldComp.factionData.Values)
@@ -201,6 +206,34 @@ namespace Multiplayer.Client
             {
                 MapSetup.SetupMap(map, true, multifaction ? MapSetup.OwnerAtHostTime(map) : null);
             }
+        }
+
+        // Copies the host faction's play settings, current research projects, story watcher and storyteller state.
+        // Everything is copied by value (PlaySettings and StatsRecord hold only bools, enums and ints), so the factions
+        // share nothing afterwards. The storyteller's incident queue is left empty: its queued incidents would fire once
+        // for each faction
+        private static void SeedFromHost(FactionWorldData data, FactionWorldData host)
+        {
+            data.playSettings = MpUtil.ShallowCopy(host.playSettings, new PlaySettings());
+
+            var research = data.researchManager;
+            var hostResearch = host.researchManager;
+            research.currentProj = hostResearch.currentProj;
+            research.gravEngineInspected = hostResearch.gravEngineInspected;
+            research.currentAnomalyKnowledgeProjects = (hostResearch.currentAnomalyKnowledgeProjects ?? Enumerable.Empty<ResearchManager.KnowledgeCategoryProject>())
+                .Select(p => new ResearchManager.KnowledgeCategoryProject { category = p.category, project = p.project })
+                .ToList();
+
+            data.storyWatcher.statsRecord = MpUtil.ShallowCopy(host.storyWatcher.statsRecord, new StatsRecord());
+            data.storyWatcher.watcherAdaptation.adaptDays = host.storyWatcher.watcherAdaptation.adaptDays;
+            data.storyWatcher.watcherPopAdaptation.adaptDays = host.storyWatcher.watcherPopAdaptation.adaptDays;
+
+            var storyteller = data.storyteller;
+            var hostStoryteller = host.storyteller;
+            storyteller.recentIncidentsAnomaly = new(hostStoryteller.recentIncidentsAnomaly ?? Enumerable.Empty<bool>());
+            storyteller.recentAnomalyIncidentFactor = hostStoryteller.recentAnomalyIncidentFactor;
+            storyteller.lastQuestGiverTraderTick = hostStoryteller.lastQuestGiverTraderTick;
+            storyteller.lastIncidentTick = hostStoryteller.lastIncidentTick;
         }
 
         // Records that a username plays a faction, so that player joins straight into it (multifaction); saved with
