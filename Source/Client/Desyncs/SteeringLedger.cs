@@ -90,6 +90,8 @@ namespace Multiplayer.Client.Desyncs
                     if (space <= 0) continue;
                     ids.Add(line.Substring(0, space).TrimEnd(':'));
                 }
+                // "No entity differs" or "Could not compare": nothing to name
+                if (ids.Count == 0) return;
 
                 var sb = new StringBuilder();
                 sb.AppendLine($"{Multiplayer.username}: rotation changes (R) and path requests (P) of the pawns the map {mapId} / {lane} leaf diff at timer tick {tick} names, " +
