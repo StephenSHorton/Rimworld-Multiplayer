@@ -110,6 +110,9 @@ namespace Multiplayer.Client.Patches
             yield return AccessTools.PropertyGetter(typeof(Map), nameof(Map.NextGenSeed));
             yield return AccessTools.PropertyGetter(typeof(Gravship), nameof(Gravship.ConstantRandSeed));
             yield return AccessTools.Method(typeof(LayoutWorker), nameof(LayoutWorker.FillAllRooms));
+            // Raiders decide which traps they know of with Rand.ValueAsync(HashCode.Combine(faction or lord, trap id)):
+            // the 2026-10-22 map 1 desyncs (wander and path choices around traps differing per player).
+            yield return AccessTools.Method(typeof(Building_Trap), nameof(Building_Trap.KnowsOfTrap));
         }
 
         static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> insts)
