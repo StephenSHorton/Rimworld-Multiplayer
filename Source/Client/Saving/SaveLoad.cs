@@ -164,7 +164,8 @@ namespace Multiplayer.Client
             return new TempGameData(gameDoc, sessionData);
         }
 
-        // With the world's clock in the tick manager: a load turns its section into the world's clock
+        // With the world's clock in the tick manager: a load turns its section into the world's clock. Only while the MP
+        // game exists; converting to single player saves after it is gone and puts the clock in itself (ConvertToSp)
         public static XmlDocument SaveGameToDoc() => AsyncTime.AsyncWorldTimeComp.WithWorldClock(SaveGameToDocCore);
 
         private static XmlDocument SaveGameToDocCore()

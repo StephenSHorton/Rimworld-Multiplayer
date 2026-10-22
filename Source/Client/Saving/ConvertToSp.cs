@@ -37,6 +37,10 @@ public class ConvertToSp
 
     private static void PrepareLoading()
     {
+        // The save below runs after the MP game is gone, so WithWorldClock can't find the world's clock then: put it
+        // in the tick manager now, for the single player save's tickManager section. The save itself has to come after
+        // StopMultiplayer, which leaves the MP comps out of it
+        Multiplayer.AsyncWorldTime?.ApplyWorldClock("converting to single player", speed: false);
         Multiplayer.StopMultiplayer();
 
         var doc = SaveLoad.SaveGameToDoc();
