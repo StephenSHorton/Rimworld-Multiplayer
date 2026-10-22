@@ -78,7 +78,13 @@ namespace Multiplayer.Client.Desyncs
         /// </summary>
         public static void OnLeafDiff(string lane, int mapId, int tick, string diff)
         {
-            if (!Enabled || lane != "pawns" && lane != "things") return;
+            if (lane != "pawns" && lane != "things") return;
+            if (!Enabled)
+            {
+                // The other game may write its file; say why this one has none
+                MpLog.Log($"Steering ledger off on this game, no file for the map {mapId} / {lane} leaf diff at timer tick {tick} (enable dev mode or MpSteeringLedger.flag)");
+                return;
+            }
 
             try
             {
