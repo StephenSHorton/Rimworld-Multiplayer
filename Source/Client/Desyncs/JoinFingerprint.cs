@@ -213,7 +213,7 @@ namespace Multiplayer.Client.Desyncs
         /// - a game, world or map component whose class has an attribute named ClientOnlyAttribute (Rimkit marks
         ///   components that only one game's interface fills, such as BetterArchitect.MysteryUnlockTracker) is
         ///   compared by its class only.
-        /// 2026-10-22:
+        /// 2026-10-21:
         /// - the bossgroup component's call counts: the count getter adds a 0 entry on a mere read (the debug menu,
         ///   the call gizmo's warning), so a 0 entry is taken as none. Interface reads no longer add one
         ///   (BossgroupCountInInterface); this keeps saves made before that comparable.

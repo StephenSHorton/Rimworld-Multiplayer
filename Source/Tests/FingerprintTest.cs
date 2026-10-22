@@ -38,7 +38,7 @@ public class FingerprintTest
     [Test]
     public void JoinFromTheMenuLeavesOutTheHostsSaveRows()
     {
-        // 2026-10-22: a player joining from the menu got about 295 "only host's game has it" rows, one per section
+        // 2026-10-21: a player joining from the menu got about 295 "only host's game has it" rows, one per section
         // of the host's last join point save
         var host = Enumerable.Range(0, 300).Select(i => Row($"{Fingerprint.JoinSaveRowPrefix}map 0/s{i}", "a", warn: true))
             .Append(Row("Market value: Steel", "1.9")).Append(Row("Language", "English", warn: true));

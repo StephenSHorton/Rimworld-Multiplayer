@@ -33,7 +33,7 @@ public static class Fingerprint
 
     /// <summary>
     /// The rows without the join point save's sections. A player joining from the menu has no join point save yet,
-    /// so at the door the host's save rows are only noise (2026-10-22: about 295 "only host's game has it" lines).
+    /// so at the door the host's save rows are only noise (2026-10-21: about 295 "only host's game has it" lines).
     /// </summary>
     public static IEnumerable<FingerprintRow> WithoutJoinSave(IEnumerable<FingerprintRow>? rows) =>
         (rows ?? []).Where(r => r.name == null || !r.name.StartsWith(JoinSaveRowPrefix, System.StringComparison.Ordinal));
