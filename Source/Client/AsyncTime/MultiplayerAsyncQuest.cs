@@ -92,10 +92,14 @@ namespace Multiplayer.Client.Comp
             if (!Multiplayer.GameComp.asyncTime) return;
 
             __state = MultiplayerAsyncQuest.TryGetCachedQuestMap(__instance);
+            // Inside that map's context already: QuestManager.Add sorts every quest by TicksSinceAppeared, and a
+            // quest made in its map's tick lands here inside that tick
+            if (__state is { IsCurrentContext: true }) __state = null;
             __state?.PreContext();
         }
 
-        static void Postfix(AsyncTimeComp __state) => __state?.PostContext();
+        // A finalizer: a getter that throws must still close the context
+        static void Finalizer(AsyncTimeComp __state) => __state?.PostContext();
     }
 
     [HarmonyPatch(typeof(Quest), nameof(Quest.Accept))]
@@ -109,10 +113,11 @@ namespace Multiplayer.Client.Comp
             if (__instance.State != QuestState.NotYetAccepted || !Multiplayer.GameComp.asyncTime || __instance.parts == null) return;
 
             __state = MultiplayerAsyncQuest.CacheQuest(__instance);
+            if (__state is { IsCurrentContext: true }) __state = null;
             __state?.PreContext();
         }
 
-        static void Postfix(AsyncTimeComp __state) => __state?.PostContext();
+        static void Finalizer(AsyncTimeComp __state) => __state?.PostContext();
     }
 
     [HarmonyPatch(typeof(Quest), nameof(Quest.End))]

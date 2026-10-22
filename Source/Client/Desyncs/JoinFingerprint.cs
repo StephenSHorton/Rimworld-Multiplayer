@@ -111,6 +111,29 @@ namespace Multiplayer.Client.Desyncs
                 }
             });
 
+            // Style weights come from these tags (StyleItemChoiceLikelihoodFromTags sums every matching tag, so a tag
+            // listed twice doubles it). 2026-10-21: NoBeard weighed 1200 on the host's game and 600 on the joiner's with
+            // the same random state. Warn rows: a mod can change defs when a game loads, so they're compared after
+            // the join point, when the referee names any that differ to both players
+            Try("Style tags", () =>
+            {
+                foreach (var kind in DefDatabase<PawnKindDef>.AllDefsListForReading)
+                    if (!kind.styleItemTags.NullOrEmpty())
+                        Add($"Style tags: kind {kind.defName}", StyleRolls.Tags(kind.styleItemTags.OrderBy(t => t.Tag, StringComparer.Ordinal).ToList()), warn: true);
+
+                // Each kind of style item has its own database; a duplicate tag is kept, it doubles a weight
+                void AddItems(string what, IEnumerable<StyleItemDef> defs)
+                {
+                    foreach (var def in defs)
+                        Add($"Style tags: {what} {def.defName}",
+                            string.Join(",", (def.styleTags ?? new List<string>()).OrderBy(t => t, StringComparer.Ordinal)), warn: true);
+                }
+
+                AddItems("beard", DefDatabase<BeardDef>.AllDefsListForReading);
+                AddItems("hair", DefDatabase<HairDef>.AllDefsListForReading);
+                AddItems("tattoo", DefDatabase<TattooDef>.AllDefsListForReading);
+            });
+
             // The generators' pair caches keep the price from when they were built (Desync-07/08)
             Try("Weapon price cache", () => AddPairs("Weapon price cache", PawnWeaponGenerator.allWeaponPairs, Add));
             Try("Apparel price cache", () => AddPairs("Apparel price cache", PawnApparelGenerator.allApparelPairs, Add));
@@ -301,25 +324,56 @@ namespace Multiplayer.Client.Desyncs
                 MpLog.Error($"Couldn't hash the join point save: {e}");
             }
             saveSections = sections;
+            clockAtHash = Clock();
             // Two games' sections only compare if they saved at the same point (2026-10-19: one join point's world
             // pawns were two ticks apart)
             saveSectionsAt = $"world tick {Multiplayer.AsyncWorldTime?.worldTicks}, map ticks {string.Join(",", Find.Maps.Select(m => m.AsyncTime().mapTicks))}";
         }
 
-        /// <summary>Called when the referee reports this game's fingerprint differs after a join point.</summary>
-        public static void OnFingerprintDiffers(string message)
+        // The world's clock and the tick manager's, live: before the join point saved, and when its save was hashed
+        // (after the reload). 2026-10-21: a map's tick count left in the tick manager made the world clock jump back
+        private static string clockBeforeSave = "(not recorded)";
+        private static string clockAtHash = "(not recorded)";
+
+        private static string Clock()
         {
-            if (!message.Contains("Join point save")) return;
             try
             {
-                // The rows read "Join point save: <section>: <hash> (host) vs ..."
-                var names = saveSections.Keys.Where(k => message.Contains(k + ":")).ToList();
+                var tm = Find.TickManager;
+                return tm == null ? "no tick manager" :
+                    $"worldTicks={Multiplayer.AsyncWorldTime?.worldTicks} ticksGameInt={tm.ticksGameInt} gameStartAbsTick={tm.gameStartAbsTick} " +
+                    $"curTimeSpeed={tm.curTimeSpeed} mapTicks={string.Join(",", Find.Maps.Select(m => $"{m.uniqueID}:{m.AsyncTime()?.mapTicks}"))}";
+            }
+            catch (Exception e)
+            {
+                return $"failed: {e.GetType().Name}";
+            }
+        }
+
+        /// <summary>Called when the referee reports this game's fingerprint differs after a join point.</summary>
+        public static void OnFingerprintDiffers(ServerSyncVerdictPacket packet)
+        {
+            var message = packet.message ?? "";
+            if (!message.Contains("Join point save") && packet.saveSections is not { Length: > 0 }) return;
+            try
+            {
+                // Every differing section the referee listed (the message names six); failing that, the ones the
+                // message names (the rows read "Join point save: <section>: <hash> (host) vs ...")
+                var names = packet.saveSections is { Length: > 0 }
+                    ? packet.saveSections.Where(saveSections.ContainsKey).ToList()
+                    : saveSections.Keys.Where(k => message.Contains(k + ":")).ToList();
                 if (names.Count == 0) names = saveSections.Keys.ToList();
-                var text = string.Join("\n\n", names.Select(n => $"=== {n}\n{saveSections[n]}"));
+
+                // Every dump also has the clocks and the tick manager's section
+                const string tickManager = "game/tickManager";
+                var header = $"=== clock\nbefore saving: {clockBeforeSave}\nwhen hashed (after reloading): {clockAtHash}\n\n";
+                if (!names.Contains(tickManager) && saveSections.TryGetValue(tickManager, out var tmSection))
+                    header += $"=== {tickManager} (for reference, not different)\n{tmSection}\n\n";
+                var text = header + string.Join("\n\n", names.Select(n => $"=== {n}\n{saveSections[n]}"));
                 System.IO.Directory.CreateDirectory(Multiplayer.DesyncsDir);
                 var path = System.IO.Path.Combine(Multiplayer.DesyncsDir, $"joinsave-{Multiplayer.username}-{Find.TickManager.TicksGame}.xml.gz");
                 System.IO.File.WriteAllBytes(path, LeafDiff.Gzip(text));
-                MpLog.Warn($"The join point saves differ ({string.Join(", ", names.Take(8))}); this game's sections ({saveSectionsAt}) are in {path}");
+                MpLog.Warn($"The join point saves differ in {names.Count} sections ({string.Join(", ", names.Take(8))}); this game's sections ({saveSectionsAt}) are in {path}");
             }
             catch (Exception e)
             {
@@ -476,6 +530,7 @@ namespace Multiplayer.Client.Desyncs
         public static (Dictionary<string, ulong> lanes, Dictionary<string, string> leaves) BeforeJoinPoint()
         {
             JoinPointDrops.Arm();
+            clockBeforeSave = Clock();
             try
             {
                 var lanes = SyncLanes.ComputeAll();

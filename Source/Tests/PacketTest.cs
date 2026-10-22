@@ -154,7 +154,8 @@ public class PacketTest
         yield return new ServerSyncVerdictPacket
         {
             playerId = 2, username = "Blake", tick = 12345, hard = true, lane = "rng", mapId = 1,
-            message = "Wrong random state on map 1: entry 3: 10 vs 11 random calls"
+            message = "Wrong random state on map 1: entry 3: 10 vs 11 random calls",
+            saveSections = ["game/tickManager", "map 0/things"]
         };
 
         yield return new ClientSetFactionPacket(123, 123);

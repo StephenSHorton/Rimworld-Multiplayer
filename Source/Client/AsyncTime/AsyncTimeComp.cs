@@ -110,6 +110,7 @@ namespace Multiplayer.Client
 
         public void Tick()
         {
+            CheckNoContextOpen($"map {map.uniqueID}'s tick");
             tickingMap = map;
             PreContext();
 
@@ -174,9 +175,39 @@ namespace Multiplayer.Client
             map.glowGrid.GlowGridUpdate_First();
         }
 
-        private TimeSnapshot? prevTime;
+        /// <summary>
+        /// The map contexts open now, innermost last. A context can open inside itself: vanilla's QuestManager.Add
+        /// sorts every quest by TicksSinceAppeared, and SetContextForQuest opens each quest's map for that getter, so
+        /// a quest made inside its own map's tick opened that map again. With one saved time per map the inner open
+        /// saved the map's time over the world's and the outer close left the map's tick count in the world's clock
+        /// (2026-10-21: the world clock went back about 1800 ticks at a join point, on both games). Opening the
+        /// innermost context again now only counts; nothing switches until the outermost closes.
+        /// </summary>
+        private static readonly global::Multiplayer.Common.Util.ContextStack<AsyncTimeComp, TimeSnapshot?> openContexts = new();
 
-        public void PreContext()
+        /// <summary>Whether this map's context is the innermost one open (no need to open it again).</summary>
+        public bool IsCurrentContext => openContexts.IsCurrent(this);
+
+        // Map ticks and commands open the first context; one left open from before means an exception skipped a close
+        private static void CheckNoContextOpen(string where)
+        {
+            if (openContexts.Count == 0) return;
+            MpLog.Error($"{openContexts.Count} map contexts were still open at {where} (innermost: map {openContexts.Current?.map?.uniqueID}); closing them");
+            openContexts.Clear();
+        }
+
+        public void PreContext() => openContexts.Open(this, SwitchIn);
+
+        public void PostContext()
+        {
+            var dropped = openContexts.Close(this, SwitchOut);
+            if (dropped != 0)
+                MpLog.Error(dropped < 0
+                    ? $"Closing map {map.uniqueID}'s context, which wasn't open"
+                    : $"Closing map {map.uniqueID}'s context with {dropped} contexts opened inside it never closed");
+        }
+
+        private TimeSnapshot? SwitchIn()
         {
             map.PushFaction(
                 !Multiplayer.GameComp.multifaction || map.ParentFaction is { IsPlayer: true }
@@ -184,16 +215,18 @@ namespace Multiplayer.Client
                     : Multiplayer.WorldComp.spectatorFaction,
                 force: true);
 
-            prevTime = TimeSnapshot.GetAndSetFromMap(map);
+            var prevTime = TimeSnapshot.GetAndSetFromMap(map);
 
             Rand.PushState();
             Rand.StateCompressed = randState;
 
             // Reset the effects of SkyManager.SkyManagerUpdate
             map.skyManager.curSkyGlowInt = map.skyManager.CurrentSkyTarget().glow;
+
+            return prevTime;
         }
 
-        public void PostContext()
+        private void SwitchOut(TimeSnapshot? prevTime)
         {
             prevTime?.Set();
 
@@ -253,6 +286,7 @@ namespace Multiplayer.Client
             TickPatch.currentExecutingCmdIssuedBySelf = cmd.IsIssuedBySelf() && !TickPatch.Simulating;
             TickPatch.currentExecutingCmdType = cmdType;
 
+            CheckNoContextOpen($"a {cmdType} command on map {map.uniqueID}");
             PreContext();
             map.PushFaction(cmd.GetFaction(), force: true);
 

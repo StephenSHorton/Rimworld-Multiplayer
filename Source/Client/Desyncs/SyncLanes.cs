@@ -267,9 +267,13 @@ namespace Multiplayer.Client
             h = Mix(h, t.positionInt);
             h = Mix(h, LaneRotation(t));
             h = Mix(h, t.stackCount);
-            h = Mix(h, t.hitPointsInt);
+            h = Mix(h, LaneHitPoints(t));
             return h;
         }
+
+        // A thing without hit points has whatever its hitPointsInt was made with (100 live, -1 after a load: a
+        // trading spot, 2026-10-21); nothing reads it
+        public static int LaneHitPoints(Thing t) => t.def is { useHitPoints: true } ? t.hitPointsInt : -1;
 
         /// <summary>
         /// A 1x1 door's rotation is set while it is drawn (Building_Door.DoorPreDraw, Blueprint_Door.DrawAt), so it
@@ -452,7 +456,7 @@ namespace Multiplayer.Client
                 case "things":
                     foreach (var t in map.listerThings.AllThings)
                         if (t is not Mote)
-                            lines.Add((t.thingIDNumber, $"{t.ThingID} def={t.def?.defName} stuff={t.Stuff?.defName} pos={t.positionInt} rot={LaneRotation(t)} stack={t.stackCount} hp={t.hitPointsInt}"));
+                            lines.Add((t.thingIDNumber, $"{t.ThingID} def={t.def?.defName} stuff={t.Stuff?.defName} pos={t.positionInt} rot={LaneRotation(t)} stack={t.stackCount} hp={LaneHitPoints(t)}"));
                     break;
                 case "plants":
                     foreach (var t in map.listerThings.ThingsInGroup(ThingRequestGroup.Plant))

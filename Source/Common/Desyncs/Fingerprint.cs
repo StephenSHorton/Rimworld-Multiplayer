@@ -54,6 +54,17 @@ public static class Fingerprint
         return (blocking, warnings);
     }
 
+    /// <summary>The names of the rows that differ or that only one side has, in ordinal order.</summary>
+    public static List<string> DifferingNames(IEnumerable<FingerprintRow>? reference, IEnumerable<FingerprintRow>? other)
+    {
+        var refRows = (reference ?? []).GroupBy(r => r.name).ToDictionary(g => g.Key, g => g.First().value);
+        var otherRows = (other ?? []).GroupBy(r => r.name).ToDictionary(g => g.Key, g => g.First().value);
+        return refRows.Keys.Union(otherRows.Keys)
+            .Where(n => !refRows.TryGetValue(n, out var a) || !otherRows.TryGetValue(n, out var b) || a != b)
+            .OrderBy(n => n, System.StringComparer.Ordinal)
+            .ToList();
+    }
+
     public static string Describe(List<string> lines, int max = 15) =>
         string.Join("\n", lines.Take(max)) + (lines.Count > max ? $"\n... and {lines.Count - max} more" : "");
 }

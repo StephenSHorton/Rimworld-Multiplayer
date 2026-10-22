@@ -65,6 +65,14 @@ public class SyncReferee
         if (blocking.Count == 0) return;
 
         var text = Fingerprint.Describe(blocking, 6);
+        // The message names six rows; the games dump every differing save section (2026-10-21: the fifth join
+        // point's dumps held only the six named)
+        const string savePrefix = "Join point save: ";
+        var sections = Fingerprint.DifferingNames(referenceRows, rows)
+            .Where(n => n.StartsWith(savePrefix))
+            .Select(n => n.Substring(savePrefix.Length))
+            .Take(ServerSyncVerdictPacket.MaxSaveSections)
+            .ToArray();
         ServerLog.Log($"Sync referee: {player.Username}'s fingerprint differs from the host's after the join point:\n{text}");
         Send(player, new ServerSyncVerdictPacket
         {
@@ -74,7 +82,8 @@ public class SyncReferee
             hard = false,
             lane = "fingerprint",
             mapId = -1,
-            message = $"after the join point, {blocking.Count} fingerprint rows differ: {text.Replace("\n", "; ")}"
+            message = $"after the join point, {blocking.Count} fingerprint rows differ: {text.Replace("\n", "; ")}",
+            saveSections = sections
         });
     }
     public int Differences { get; private set; }

@@ -146,8 +146,20 @@ public class AsyncWorldTimeComp : IExposable, ITickable
         }
     }
 
+    private static int clockMismatches;
+
     public void PreContext()
     {
+        // The world's clock is worldTicks. Between contexts TickManager.ticksGameInt should hold it too, but a map
+        // context that didn't restore it (one opened inside itself, 2026-10-21) left a map's tick count there, and a
+        // save stores ticksGameInt, which a load turns back into worldTicks
+        if (Find.TickManager.ticksGameInt != worldTicks)
+        {
+            if (clockMismatches++ % 100 == 0)
+                MpLog.Warn($"The game's tick count was {Find.TickManager.ticksGameInt} on entering the world's context at world tick {worldTicks}; set back to the world's ({clockMismatches} times so far)");
+            Find.TickManager.ticksGameInt = worldTicks;
+        }
+
         Find.TickManager.CurTimeSpeed = DesiredTimeSpeed;
         Rand.PushState();
         Rand.StateCompressed = randState;

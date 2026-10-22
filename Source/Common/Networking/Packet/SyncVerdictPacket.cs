@@ -14,6 +14,13 @@ public record struct ServerSyncVerdictPacket : IPacket
     public string lane;
     public int mapId;
     public string message;
+    /// <summary>
+    /// After a join point: every join point save section whose hash differs (the message names only a few), for
+    /// each game to write them all to its joinsave dump.
+    /// </summary>
+    public string[] saveSections;
+
+    public const int MaxSaveSections = 400;
 
     public void Bind(PacketBuffer buf)
     {
@@ -24,5 +31,7 @@ public record struct ServerSyncVerdictPacket : IPacket
         buf.Bind(ref lane);
         buf.Bind(ref mapId);
         buf.Bind(ref message, maxLength: 4096);
+        saveSections ??= [];
+        buf.Bind(ref saveSections, BinderOf.String(), maxLength: MaxSaveSections);
     }
 }

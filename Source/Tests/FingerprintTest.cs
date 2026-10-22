@@ -35,6 +35,22 @@ public class FingerprintTest
         Assert.That(warnings, Is.Empty);
     }
 
+    [Test]
+    public void DifferingNamesListsEveryDifferingRow()
+    {
+        // More rows than a verdict message names (2026-10-21: the dump held only the six named), names with ": "
+        var reference = Enumerable.Range(0, 10).Select(i => Row($"Join point save: map 0/s{i}", "a")).Append(Row("same", "1")).Append(Row("only host", "x"));
+        var other = Enumerable.Range(0, 10).Select(i => Row($"Join point save: map 0/s{i}", "b")).Append(Row("same", "1")).Append(Row("only Blake", "y"));
+
+        var names = Fingerprint.DifferingNames(reference, other);
+
+        Assert.That(names, Has.Count.EqualTo(12));
+        Assert.That(names, Does.Contain("Join point save: map 0/s9"));
+        Assert.That(names, Does.Contain("only host"));
+        Assert.That(names, Does.Contain("only Blake"));
+        Assert.That(names, Does.Not.Contain("same"));
+    }
+
     private static (FingerprintPairing pairing, List<(int player, string reference, string rows)> judged, List<(int player, int joinPoint)> dropped) Pairing()
     {
         var judged = new List<(int, string, string)>();

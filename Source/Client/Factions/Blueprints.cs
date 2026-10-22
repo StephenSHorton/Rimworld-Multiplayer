@@ -262,11 +262,19 @@ namespace Multiplayer.Client
         }
     }
 
+    // Factions' blueprints can share a cell and placement ignores other factions' blueprints (ShouldIgnore1), so
+    // something built can stand where vanilla would never have let a blueprint stay: wipe every blueprint that
+    // couldn't be placed over it (d291ae8, "Integrate blueprints with factions"). Not while a map loads: then nothing
+    // is being built, everything spawning was together when saved, and buildings spawn after every blueprint, so
+    // each load wiped the blueprints placed over natural rock (Replace Stuff allows conduits there), in single
+    // player too.
     [HarmonyPatch(typeof(GenSpawn), nameof(GenSpawn.SpawningWipes))]
     static class SpawningWipesBlueprintPatch
     {
         static void Postfix(ref bool __result, BuildableDef newEntDef, BuildableDef oldEntDef)
         {
+            if (Patches.MapFinalizeLoading.Running) return;
+
             ThingDef newDef = newEntDef as ThingDef;
             ThingDef oldDef = oldEntDef as ThingDef;
             if (newDef == null || oldDef == null) return;
