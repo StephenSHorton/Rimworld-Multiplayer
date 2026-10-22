@@ -234,10 +234,11 @@ namespace Multiplayer.Client
         {
             if (Multiplayer.Client == null || Scribe.mode != LoadSaveMode.Saving) return;
 
+            // A removed map always makes the copy, so vanilla's save-time removal of its entry changes only the copy
             var caused = __instance.causedConditions;
             Dictionary<Map, GameCondition> saved = null;
             foreach (var (map, condition) in caused)
-                if (condition == null || !map.GameConditionManager.ActiveConditions.Contains(condition))
+                if (condition == null || !Find.Maps.Contains(map) || !map.GameConditionManager.ActiveConditions.Contains(condition))
                 {
                     saved ??= new Dictionary<Map, GameCondition>(caused);
                     saved.Remove(map);
