@@ -520,11 +520,14 @@ namespace Multiplayer.Client
             {
                 if (worker.def != null && ReferenceEquals(worker.def.workerInt, worker)) return true;
 
-                Log.WarningOnce($"Persistent dialog field: the incident worker {worker.GetType().FullName} isn't the worker of " +
-                    $"its def ({worker.def?.defName ?? "no def"}), so it can't be saved; a dialog that captures it is dropped when loaded",
-                    worker.GetType().FullName!.Length ^ 0x5D1A);
+                // Once per worker type, so each type that can't be saved says why
+                if (warnedWorkerTypes.Add(worker.GetType()))
+                    Log.Warning($"Persistent dialog field: the incident worker {worker.GetType().FullName} isn't the worker of " +
+                        $"its def ({worker.def?.defName ?? "no def"}), so it can't be saved; a dialog that captures it is dropped when loaded");
                 return false;
             }
+
+            private static readonly HashSet<Type> warnedWorkerTypes = new();
 
             private Dictionary<string, int> fields;
 
