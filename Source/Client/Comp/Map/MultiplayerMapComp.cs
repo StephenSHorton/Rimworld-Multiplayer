@@ -168,6 +168,15 @@ namespace Multiplayer.Client
             Scribe_Collections.Look(ref mapDialogs, "mapDialogs", LookMode.Deep, map);
             if (Scribe.mode == LoadSaveMode.LoadingVars && mapDialogs == null)
                 mapDialogs = new List<PersistentDialog>();
+            // The dialogs' post load inits ran before this one: one that couldn't be built again goes, the same on
+            // every game (each click on it threw, and the incident behind it never went on)
+            if (Scribe.mode == LoadSaveMode.PostLoadInit)
+                mapDialogs.RemoveAll(d =>
+                {
+                    if (d?.Dialog != null) return false;
+                    if (d is { LoadFailed: false }) Log.Warning($"Persistent dialog {d.id} ({d.GetType().Name}) wasn't built when loading and is dropped");
+                    return true;
+                });
 
             ExposeFactionData();
             ExposeCustomFactionData();

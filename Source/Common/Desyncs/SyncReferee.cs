@@ -67,7 +67,7 @@ public class SyncReferee
         var text = Fingerprint.Describe(blocking, 6);
         // The message names six rows; the games dump every differing save section (2026-10-21: the fifth join
         // point's dumps held only the six named)
-        const string savePrefix = "Join point save: ";
+        const string savePrefix = Fingerprint.JoinSaveRowPrefix;
         var sections = Fingerprint.DifferingNames(referenceRows, rows)
             .Where(n => n.StartsWith(savePrefix))
             .Select(n => n.Substring(savePrefix.Length))

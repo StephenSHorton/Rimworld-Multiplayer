@@ -213,6 +213,10 @@ namespace Multiplayer.Client.Desyncs
         /// - a game, world or map component whose class has an attribute named ClientOnlyAttribute (Rimkit marks
         ///   components that only one game's interface fills, such as BetterArchitect.MysteryUnlockTracker) is
         ///   compared by its class only.
+        /// 2026-10-22:
+        /// - the bossgroup component's call counts: the count getter adds a 0 entry on a mere read (the debug menu,
+        ///   the call gizmo's warning), so a 0 entry is taken as none. Interface reads no longer add one
+        ///   (BossgroupCountInInterface); this keeps saves made before that comparable.
         /// </summary>
         private class SaveNoise
         {
@@ -275,6 +279,9 @@ namespace Multiplayer.Client.Desyncs
                         case "stockEntries" when e.ParentNode?.Name == "inventoryStock":
                             RemoveDefaultStock(e);
                             continue;
+                        case "timesCalledBossgroups":
+                            RemoveEntries(e, (_, value) => value.InnerText == "0");
+                            continue;
                         case "li" when e.ParentNode?.Name == "allFactions":
                             if (e["mechColor"] is { } mechColor &&
                                 DefDatabase<FactionDef>.GetNamedSilentFail(e["def"]?.InnerText ?? "") is { isPlayer: false })
@@ -320,21 +327,25 @@ namespace Multiplayer.Client.Desyncs
                 return result;
             }
 
-            // A dictionary saves as parallel keys and values lists; an entry as made by CreateDefaultEntryFor
-            // (count the group's min, saved only when not 0, and its default thing) goes from both
-            private static void RemoveDefaultStock(XmlElement entries)
+            // An entry as made by CreateDefaultEntryFor (count the group's min, saved only when not 0, and its default
+            // thing) is the same as none
+            private static void RemoveDefaultStock(XmlElement entries) =>
+                RemoveEntries(entries, (key, value) =>
+                    DefDatabase<InventoryStockGroupDef>.GetNamedSilentFail(key.InnerText) is { } group &&
+                    (value["count"]?.InnerText ?? "0") == group.min.ToString(CultureInfo.InvariantCulture) &&
+                    value["thingDef"]?.InnerText == group.DefaultThingDef?.defName);
+
+            // A dictionary saves as parallel keys and values lists; an entry the predicate matches goes from both
+            private static void RemoveEntries(XmlElement dict, Func<XmlElement, XmlElement, bool> remove)
             {
-                if (entries["keys"] is not { } keys || entries["values"] is not { } values) return;
+                if (dict["keys"] is not { } keys || dict["values"] is not { } values) return;
                 var keyList = keys.ChildNodes.OfType<XmlElement>().ToList();
                 var valueList = values.ChildNodes.OfType<XmlElement>().ToList();
                 if (keyList.Count != valueList.Count) return;
 
                 for (int i = 0; i < keyList.Count; i++)
                 {
-                    if (DefDatabase<InventoryStockGroupDef>.GetNamedSilentFail(keyList[i].InnerText) is not { } group) continue;
-                    var count = valueList[i]["count"]?.InnerText ?? "0";
-                    var thing = valueList[i]["thingDef"]?.InnerText;
-                    if (count == group.min.ToString(CultureInfo.InvariantCulture) && thing == group.DefaultThingDef?.defName)
+                    if (remove(keyList[i], valueList[i]))
                     {
                         keys.RemoveChild(keyList[i]);
                         values.RemoveChild(valueList[i]);
@@ -490,7 +501,7 @@ namespace Multiplayer.Client.Desyncs
                 var noise = new SaveNoise();
                 var rows = Build().Concat(saveSections.Select(kv => new FingerprintRow
                 {
-                    name = "Join point save: " + kv.Key,
+                    name = Fingerprint.JoinSaveRowPrefix + kv.Key,
                     value = FaultSignature.Hash(ForCompare(kv.Value, noise)).ToString("X8"),
                     warn = true
                 })).ToArray();

@@ -129,6 +129,20 @@ namespace Multiplayer.Client
 
         public int ver;
 
+        /// <summary>
+        /// Set when a part of this dialog couldn't be loaded. A dialog with an option whose action lost its captured
+        /// values would throw on every click on every game, so the map drops it after loading
+        /// (<see cref="MultiplayerMapComp.ExposeData"/>).
+        /// </summary>
+        public bool LoadFailed { get; private set; }
+
+        internal void FailLoad(string why)
+        {
+            if (LoadFailed) return;
+            LoadFailed = true;
+            Log.Warning($"Persistent dialog {id} ({GetType().Name}) can't be loaded and is dropped: {why}");
+        }
+
         protected PersistentDialog(Map map)
         {
             this.map = map;
@@ -294,13 +308,24 @@ namespace Multiplayer.Client
                 Scribe_Collections.Look(ref fieldValues, "fieldValues", LookMode.Deep, this);
                 Scribe_Collections.Look(ref saveNodes, "nodes", LookMode.Deep, this);
 
-                rootNode = saveNodes[0].node;
+                // A part that threw while loading is left null in its list
+                if (Scribe.mode == LoadSaveMode.LoadingVars) {
+                    if (fieldValues == null || fieldValues.Contains(null))
+                        FailLoad("a captured value couldn't be read");
+                    if (saveNodes.NullOrEmpty() || saveNodes.Contains(null))
+                        FailLoad("a node couldn't be read");
+                }
+
+                rootNode = saveNodes?.FirstOrDefault()?.node;
             }
 
             if (Scribe.mode == LoadSaveMode.PostLoadInit) {
-                dialog = ExposeDataInstance(rootNode, radioMode, title);
-                dialog.doCloseX = true;
-                dialog.closeOnCancel = true;
+                // The parts' post load inits ran before this one
+                if (!LoadFailed && rootNode != null) {
+                    dialog = ExposeDataInstance(rootNode, radioMode, title);
+                    dialog.doCloseX = true;
+                    dialog.closeOnCancel = true;
+                }
 
                 Clean();
             }
@@ -462,6 +487,7 @@ namespace Multiplayer.Client
 
             public const LookMode DelegateMode = (LookMode)101;
             public const LookMode PlainObjectMode = (LookMode)100;
+            public const LookMode IncidentWorkerMode = (LookMode)102;
 
             public FieldSave(PersistentDialog<T> parent, Type type, object value) : this(parent)
             {
@@ -481,8 +507,23 @@ namespace Multiplayer.Client
                     mode = LookMode.Reference;
                 else if (typeof(IExposable).IsAssignableFrom(type))
                     mode = LookMode.Deep;
+                else if (value is IncidentWorker worker ? IsDefsWorker(worker) : value == null && typeof(IncidentWorker).IsAssignableFrom(type))
+                    mode = IncidentWorkerMode;
                 else
                     mode = PlainObjectMode;
+            }
+
+            // An incident worker is saved as its def when it is the def's own worker (a mod's incident that asks
+            // the player first captures its worker in the options' actions: Hospitality's visitor groups); any
+            // other instance can't be found again after loading
+            private static bool IsDefsWorker(IncidentWorker worker)
+            {
+                if (worker.def != null && ReferenceEquals(worker.def.workerInt, worker)) return true;
+
+                Log.WarningOnce($"Persistent dialog field: the incident worker {worker.GetType().FullName} isn't the worker of " +
+                    $"its def ({worker.def?.defName ?? "no def"}), so it can't be saved; a dialog that captures it is dropped when loaded",
+                    worker.GetType().FullName!.Length ^ 0x5D1A);
+                return false;
             }
 
             private Dictionary<string, int> fields;
@@ -490,8 +531,38 @@ namespace Multiplayer.Client
             private string methodDeclaringType;
             private string methodName;
             private int targetIndex;
+            private string incidentDefName;
+
+            private bool failed;
 
             public void ExposeData()
+            {
+                if (Scribe.mode == LoadSaveMode.Saving)
+                {
+                    Expose();
+                    return;
+                }
+
+                // Loading: a value that can't be made again fails the whole dialog instead of leaving it half built
+                if (failed) return;
+                try
+                {
+                    Expose();
+                }
+                catch (Exception e)
+                {
+                    failed = true;
+                    value = null;
+                    parent.FailLoad($"{typeName} ({mode}): {e.Message}");
+                }
+            }
+
+            private object FieldValue(int index) =>
+                parent.fieldValues?.ElementAtOrDefault(index) is { failed: false } field
+                    ? field.value
+                    : throw new Exception($"captured value {index} is missing");
+
+            private void Expose()
             {
                 Scribe_Values.Look(ref mode, "mode");
 
@@ -551,7 +622,25 @@ namespace Multiplayer.Client
                     if (Scribe.mode == LoadSaveMode.PostLoadInit && value != null)
                     {
                         foreach (var kv in fields)
-                            value.SetPropertyOrField(kv.Key, parent.fieldValues[kv.Value].value);
+                            value.SetPropertyOrField(kv.Key, FieldValue(kv.Value));
+                    }
+                }
+                else if (mode == IncidentWorkerMode)
+                {
+                    if (Scribe.mode == LoadSaveMode.Saving)
+                        Scribe_Custom.LookValue((value as IncidentWorker)?.def?.defName, "incidentDef");
+
+                    if (Scribe.mode == LoadSaveMode.LoadingVars)
+                    {
+                        Scribe_Values.Look(ref incidentDefName, "incidentDef");
+                        if (incidentDefName != null)
+                        {
+                            var def = DefDatabase<IncidentDef>.GetNamedSilentFail(incidentDefName)
+                                ?? throw new Exception($"no incident def named {incidentDefName}");
+                            value = def.Worker;
+                            if (type != null && !type.IsInstanceOfType(value))
+                                throw new Exception($"the worker of {incidentDefName} is a {value.GetType().FullName}");
+                        }
                     }
                 }
                 else if (mode == DelegateMode)
@@ -578,7 +667,7 @@ namespace Multiplayer.Client
                     {
                         if (targetIndex != -1)
                         {
-                            object target = parent.fieldValues[targetIndex].value;
+                            object target = FieldValue(targetIndex) ?? throw new Exception($"the target of {methodName} is null");
                             value = Delegate.CreateDelegate(
                                 type,
                                 target,

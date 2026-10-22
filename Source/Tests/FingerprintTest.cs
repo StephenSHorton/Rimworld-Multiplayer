@@ -36,6 +36,21 @@ public class FingerprintTest
     }
 
     [Test]
+    public void JoinFromTheMenuLeavesOutTheHostsSaveRows()
+    {
+        // 2026-10-22: a player joining from the menu got about 295 "only host's game has it" rows, one per section
+        // of the host's last join point save
+        var host = Enumerable.Range(0, 300).Select(i => Row($"{Fingerprint.JoinSaveRowPrefix}map 0/s{i}", "a", warn: true))
+            .Append(Row("Market value: Steel", "1.9")).Append(Row("Language", "English", warn: true));
+        var joiner = new[] { Row("Market value: Steel", "2.1"), Row("Language", "German", warn: true) };
+
+        var (blocking, warnings) = Fingerprint.Compare(Fingerprint.WithoutJoinSave(host), Fingerprint.WithoutJoinSave(joiner), "host", "Blake");
+
+        Assert.That(blocking, Is.EqualTo(new[] { "Market value: Steel: 1.9 (host) vs 2.1 (Blake)" }));
+        Assert.That(warnings, Is.EqualTo(new[] { "Language: English (host) vs German (Blake)" }));
+    }
+
+    [Test]
     public void DifferingNamesListsEveryDifferingRow()
     {
         // More rows than a verdict message names (2026-10-21: the dump held only the six named), names with ": "

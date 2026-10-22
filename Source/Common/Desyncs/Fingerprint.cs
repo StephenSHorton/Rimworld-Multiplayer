@@ -28,6 +28,16 @@ public static class Fingerprint
 {
     public const int MaxRows = 1 << 16;
 
+    /// <summary>The name prefix of the rows that hash a section of the game's last join point save.</summary>
+    public const string JoinSaveRowPrefix = "Join point save: ";
+
+    /// <summary>
+    /// The rows without the join point save's sections. A player joining from the menu has no join point save yet,
+    /// so at the door the host's save rows are only noise (2026-10-22: about 295 "only host's game has it" lines).
+    /// </summary>
+    public static IEnumerable<FingerprintRow> WithoutJoinSave(IEnumerable<FingerprintRow>? rows) =>
+        (rows ?? []).Where(r => r.name == null || !r.name.StartsWith(JoinSaveRowPrefix, System.StringComparison.Ordinal));
+
     /// <summary>The rows that differ, blocking ones first; each line names the row and both values.</summary>
     public static (List<string> blocking, List<string> warnings) Compare(
         IEnumerable<FingerprintRow>? reference, IEnumerable<FingerprintRow>? other, string refName, string otherName)
