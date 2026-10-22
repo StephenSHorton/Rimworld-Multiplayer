@@ -60,6 +60,19 @@ public class SaveableDesyncInfo(
 
             zip.AddEntry("local_metadata.txt", metadata.Result);
 
+            // Rimkit's newest perf capture, if this game made one
+            try
+            {
+                var perfDir = new DirectoryInfo(Path.Combine(GenFilePaths.SaveDataFolderPath, "Rimkit_Perf"));
+                var perf = perfDir.Exists ? perfDir.GetFiles("*.json").OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault() : null;
+                if (perf != null)
+                    zip.CreateEntryFromFile(perf.FullName, "local_rimkit_perf_" + perf.Name, CompressionLevel.Optimal);
+            }
+            catch (Exception e)
+            {
+                Log.Warning($"Couldn't add the Rimkit perf capture to the desync info: {e.Message}");
+            }
+
             try
             {
                 replay.Wait();

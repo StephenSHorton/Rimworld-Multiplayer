@@ -106,6 +106,9 @@ namespace Multiplayer.Common
         public const float StandardTimePerTick = 1000.0f / 60.0f;
 
         public float serverTimePerTick = StandardTimePerTick;
+
+        // Each game's frame time once a second (MpDesyncs/perf-timeline-*.txt); null when nothing set it up
+        public PerfTimeline? perfTimeline;
         public int sentCmdsSnapshot;
 
         public int NetTimer { get; private set; }
@@ -286,6 +289,13 @@ namespace Multiplayer.Common
 
             if (serverTimePerTick > StandardTimePerTick * 4f)
                 serverTimePerTick = StandardTimePerTick * 4f;
+
+            if (perfTimeline != null)
+            {
+                perfTimeline.Sample(PlayingIngamePlayers.Select(p => (p.Username, p.frameTime)));
+                if (NetTimer % NetTicksPerSecond == 0)
+                    perfTimeline.Second(PlayingIngamePlayers.Select(p => p.Username), serverTimePerTick, DateTime.Now);
+            }
         }
 
         public void TryStop()

@@ -538,6 +538,9 @@ namespace Multiplayer.Client
             if (Environment.GetEnvironmentVariable("MP_SERVER_CLOCK") != "1")
                 localServer.hostTimer = () => TickPatch.Timer;
 
+            // The folder is taken here: the server thread doesn't call into the game
+            localServer.perfTimeline = new PerfTimeline(Multiplayer.DesyncsDir);
+
             Multiplayer.LocalServer = localServer;
             return true;
         }

@@ -32,6 +32,8 @@ var server = MultiplayerServer.instance = new MultiplayerServer(settings)
     IsStandaloneServer = true,
 };
 
+server.perfTimeline = new PerfTimeline(Path.Combine(AppContext.BaseDirectory, "MpDesyncs"));
+
 var persistence = new StandalonePersistence(AppContext.BaseDirectory);
 server.persistence = persistence;
 

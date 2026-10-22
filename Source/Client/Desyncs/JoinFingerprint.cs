@@ -34,6 +34,17 @@ namespace Multiplayer.Client.Desyncs
             providers.Add((source, rows));
         }
 
+        /// <summary>
+        /// Harmony ids of client-only diagnostics (Rimkit's profilers, the test bridge's injected delays). One player
+        /// can arm them alone, so the Harmony patches row leaves them out, and a method only they patch.
+        /// </summary>
+        public static readonly HashSet<string> DiagnosticHarmonyIds = new(StringComparer.Ordinal)
+        {
+            "horton.rimkit.core.perf",
+            "horton.rimkit.core.hitch",
+            "horton.rimkit.testbridge.inject",
+        };
+
         private static string F(float f) => f.ToString("R", CultureInfo.InvariantCulture);
 
         public static FingerprintRow[] Build()
@@ -67,9 +78,13 @@ namespace Multiplayer.Client.Desyncs
                     .Select(m =>
                     {
                         var info = Harmony.GetPatchInfo(m);
-                        var owners = info == null ? "" : string.Join(",", info.Owners.OrderBy(o => o, StringComparer.Ordinal));
-                        return $"{m.DeclaringType?.FullName}.{m.Name}|{owners}";
+                        if (info == null) return $"{m.DeclaringType?.FullName}.{m.Name}|";
+                        var owners = info.Owners.Where(o => !DiagnosticHarmonyIds.Contains(o)).OrderBy(o => o, StringComparer.Ordinal).ToList();
+                        // Patched only by a diagnostic tool armed on this game alone
+                        if (owners.Count == 0 && info.Owners.Count > 0) return null;
+                        return $"{m.DeclaringType?.FullName}.{m.Name}|{string.Join(",", owners)}";
                     })
+                    .Where(s => s != null)
                     .OrderBy(s => s, StringComparer.Ordinal)
                     .ToList();
                 ulong h = 0;
@@ -88,7 +103,8 @@ namespace Multiplayer.Client.Desyncs
                     }
                 }
 
-                // Some mods patch when a game loads, and a joiner is still at the menu: compared after the join point
+                // Some mods patch when a game loads, and a joiner is still at the menu: compared after the join point.
+                // Diagnostic owners (DiagnosticHarmonyIds) are already left out
                 Add("Harmony patches", $"{patched.Count} methods, {h:X16}", warn: true);
             });
 
