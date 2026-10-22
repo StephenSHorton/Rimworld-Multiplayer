@@ -58,14 +58,20 @@ public static class Fingerprint
         string.Join("\n", lines.Take(max)) + (lines.Count > max ? $"\n... and {lines.Count - max} more" : "");
 }
 
-/// <summary>A player's fingerprint after a join point reload, compared with the reference game's by the server.</summary>
+/// <summary>
+/// A player's fingerprint after a join point reload, compared with the reference game's by the server.
+/// <see cref="joinPoint"/> is the tick of the join point's command: one command reaches every game with the same
+/// tick, so it names the join point the rows belong to.
+/// </summary>
 [PacketDefinition(Packets.Client_Fingerprint, allowFragmented: true)]
 public record struct ClientFingerprintPacket : IPacket
 {
+    public int joinPoint;
     public FingerprintRow[] rows;
 
     public void Bind(PacketBuffer buf)
     {
+        buf.Bind(ref joinPoint);
         buf.Bind(ref rows, BinderOf.Identity<FingerprintRow>(), maxLength: Fingerprint.MaxRows);
     }
 }

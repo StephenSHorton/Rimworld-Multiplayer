@@ -279,7 +279,7 @@ namespace Multiplayer.Client
         private static int LaneRotation(Thing t) =>
             IsOneCellDoor(t.def) || t.def.entityDefToBuild is ThingDef built && IsOneCellDoor(built) ? 0 : t.rotationInt.AsInt;
 
-        private static bool IsOneCellDoor(ThingDef def) =>
+        internal static bool IsOneCellDoor(ThingDef def) =>
             def.size == IntVec2.One && def.thingClass != null && typeof(Building_Door).IsAssignableFrom(def.thingClass);
 
         private static ulong ThingsLane(Map map)

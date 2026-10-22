@@ -224,6 +224,8 @@ public class AsyncWorldTimeComp : IExposable, ITickable
                 if (Multiplayer.session?.ConnectedToStandaloneServer == true && !TickPatch.currentExecutingCmdIssuedBySelf)
                     return;
 
+                // Every game gets the command with the same tick: it names the join point for the referee
+                Desyncs.JoinFingerprint.joinPointTick = cmd.ticks;
                 LongEventHandler.QueueLongEvent(CreateJoinPointAndSendIfHost, "MpCreatingJoinPoint", false, null);
             }
 

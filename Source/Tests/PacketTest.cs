@@ -261,6 +261,12 @@ public class PacketTest
         yield return new ClientDesyncedPacket(1234, 4567);
         yield return new ClientDesyncedPacket(0, 0);
         yield return new ClientDesyncedPacket(100, 0);
+
+        yield return new Multiplayer.Common.Desyncs.ClientFingerprintPacket
+        {
+            joinPoint = 240446,
+            rows = [new() { name = "Join point save: map 0/things", value = "2D2885D1", warn = true }]
+        };
     }
 
     private static readonly List<Type> UnstablePackets = [

@@ -11,8 +11,18 @@ namespace Multiplayer.Common;
 /// only the clients compared, so the host never heard which part of its own game disagreed, and an opinion that
 /// found no partner was dropped without a word.
 /// </summary>
-public class SyncReferee(MultiplayerServer server)
+public class SyncReferee
 {
+    private readonly MultiplayerServer server;
+
+    public SyncReferee(MultiplayerServer server)
+    {
+        this.server = server;
+        fingerprints = new FingerprintPairing(JudgeFingerprint,
+            (playerId, joinPoint, why) => ServerLog.Log(
+                $"Sync referee: not comparing {server.GetPlayer(playerId)?.Username ?? "a player"}'s fingerprint from the join point at tick {joinPoint}: {why}"));
+    }
+
     private const int MaxKept = 256;
     private const int SoftRepeatEvery = 50;
 
@@ -26,41 +36,29 @@ public class SyncReferee(MultiplayerServer server)
     public int PairsCompared { get; private set; }
 
     /// <summary>The reference game's latest fingerprint (from its last join point), or null before the first.</summary>
-    public FingerprintRow[]? ReferenceFingerprint { get; private set; }
+    public FingerprintRow[]? ReferenceFingerprint => fingerprints.Latest;
+
+    private readonly FingerprintPairing fingerprints;
 
     /// <summary>
-    /// After a join point every game sends its fingerprint again; a difference from the reference game's is
-    /// reported to both players, since their games will now diverge.
+    /// After a join point every game sends its fingerprint again; a difference from the reference game's at the
+    /// same join point is reported to both players, since their games will now diverge.
     /// </summary>
-    public void OnFingerprint(ServerPlayer player, FingerprintRow[] rows, bool isReference)
+    public void OnFingerprint(ServerPlayer player, int joinPoint, FingerprintRow[] rows, bool isReference)
     {
         if (isReference)
-        {
-            ReferenceFingerprint = rows;
-            foreach (var (playerId, waiting) in pendingFingerprints)
-            {
-                var p = server.GetPlayer(playerId);
-                if (p != null) JudgeFingerprint(p, waiting);
-            }
-            pendingFingerprints.Clear();
-            return;
-        }
-
-        // The reference game may not have finished its reload yet
-        pendingFingerprints[player.id] = rows;
-        if (ReferenceFingerprint != null)
-        {
-            JudgeFingerprint(player, rows);
-            pendingFingerprints.Remove(player.id);
-        }
+            fingerprints.OnReference(joinPoint, rows);
+        else
+            fingerprints.OnPlayer(player.id, joinPoint, rows);
     }
 
-    private readonly Dictionary<int, FingerprintRow[]> pendingFingerprints = new();
-
-    private void JudgeFingerprint(ServerPlayer player, FingerprintRow[] rows)
+    private void JudgeFingerprint(int playerId, FingerprintRow[] referenceRows, FingerprintRow[] rows)
     {
+        var player = server.GetPlayer(playerId);
+        if (player == null) return;
+
         // After a join point both games have the same save loaded, so every row counts, warn rows too
-        var (blocking, warnings) = Fingerprint.Compare(ReferenceFingerprint, rows, "host", player.Username);
+        var (blocking, warnings) = Fingerprint.Compare(referenceRows, rows, "host", player.Username);
         // Not the Harmony row: mods patch interface and drawing code lazily (Map Preview, Show Me Your Hands), so
         // two games in sync differ there; in dev mode MpDesyncs/harmony-<player>.txt lists them for diffing
         blocking.AddRange(warnings.Where(w => !w.StartsWith("Runtime") && !w.StartsWith("Language") && !w.StartsWith("Harmony patches")));
@@ -136,6 +134,7 @@ public class SyncReferee(MultiplayerServer server)
     public void OnPlayerReset(ServerPlayer player)
     {
         pending.Remove(player.id);
+        fingerprints.Remove(player.id);
         hardReported.Remove(player.id);
     }
 
@@ -309,4 +308,77 @@ public class SyncReferee(MultiplayerServer server)
             if (other != player && other.IsHost)
                 other.SendPacket(packet);
     }
+}
+
+/// <summary>
+/// Pairs each game's fingerprint with the reference game's from the same join point. A game that reloads before the
+/// reference game sends its rows first, and judging them against the reference game's rows from the join point
+/// before reported every save section that changed in between (2026-10-21, the fifth join point: 63 rows). So the
+/// rows wait for the reference game's rows with the same stamp; rows whose join point the reference game has moved
+/// past are dropped, never judged against another join point's rows.
+/// </summary>
+public class FingerprintPairing(
+    System.Action<int, FingerprintRow[], FingerprintRow[]> judge,
+    System.Action<int, int, string> dropped)
+{
+    private const int KeptJoinPoints = 4;
+
+    private readonly Dictionary<int, FingerprintRow[]> reference = new();
+    private readonly Queue<int> referenceOrder = new();
+    private readonly Dictionary<int, (int joinPoint, FingerprintRow[] rows)> pending = new();
+    private int latestJoinPoint = int.MinValue;
+
+    /// <summary>The reference game's rows from its latest join point, or null before the first.</summary>
+    public FingerprintRow[]? Latest { get; private set; }
+
+    public void OnReference(int joinPoint, FingerprintRow[] rows)
+    {
+        if (joinPoint >= latestJoinPoint)
+        {
+            latestJoinPoint = joinPoint;
+            Latest = rows;
+        }
+
+        if (!reference.ContainsKey(joinPoint))
+        {
+            referenceOrder.Enqueue(joinPoint);
+            while (referenceOrder.Count > KeptJoinPoints)
+                reference.Remove(referenceOrder.Dequeue());
+        }
+        reference[joinPoint] = rows;
+
+        foreach (var (playerId, waiting) in pending.ToList())
+        {
+            if (waiting.joinPoint == joinPoint)
+                judge(playerId, rows, waiting.rows);
+            else if (waiting.joinPoint < joinPoint)
+                dropped(playerId, waiting.joinPoint, $"the host sent no rows for it before the join point at tick {joinPoint}");
+            else
+                continue;
+            pending.Remove(playerId);
+        }
+    }
+
+    public void OnPlayer(int playerId, int joinPoint, FingerprintRow[] rows)
+    {
+        if (reference.TryGetValue(joinPoint, out var refRows))
+        {
+            pending.Remove(playerId);
+            judge(playerId, refRows, rows);
+            return;
+        }
+
+        if (joinPoint < latestJoinPoint)
+        {
+            dropped(playerId, joinPoint, $"the host's rows for it are gone (its latest are from tick {latestJoinPoint})");
+            return;
+        }
+
+        // The reference game hasn't finished this join point's reload yet
+        if (pending.TryGetValue(playerId, out var older) && older.joinPoint != joinPoint)
+            dropped(playerId, older.joinPoint, $"a newer join point (tick {joinPoint}) came first");
+        pending[playerId] = (joinPoint, rows);
+    }
+
+    public void Remove(int playerId) => pending.Remove(playerId);
 }

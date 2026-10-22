@@ -68,7 +68,7 @@ namespace Multiplayer.Client.Desyncs
         private static bool RollsBack(StackTrace stack) =>
             stack.GetFrames().Any(f => f.GetMethod()?.DeclaringType?.Name == "StatMechanoidWorker");
 
-        private static string Describe(StackTrace stack, int frames) =>
+        internal static string Describe(StackTrace stack, int frames) =>
             string.Join(" < ", stack.GetFrames().Select(f => f.GetMethod()).Where(m => m != null && m.DeclaringType?.Namespace != "HarmonyLib")
                 .Take(frames).Select(m => $"{m.DeclaringType?.Name}.{m.Name}"));
 

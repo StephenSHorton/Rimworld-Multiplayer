@@ -155,7 +155,108 @@ namespace Multiplayer.Client.Desyncs
         private static readonly System.Text.RegularExpressions.Regex PerPlayer =
             new("<starting(Time|Frame)>[^<]*</starting(Time|Frame)>", System.Text.RegularExpressions.RegexOptions.Compiled);
 
-        private static string ForCompare(string xml) => PerPlayer.Replace(xml.Replace("\r", ""), "");
+        private static string ForCompare(string xml, SaveNoise noise)
+        {
+            var text = xml.Replace("\r", "");
+            try
+            {
+                var doc = new XmlDocument();
+                doc.LoadXml(text);
+                noise.Remove(doc.DocumentElement);
+                text = doc.DocumentElement!.OuterXml;
+            }
+            catch (XmlException)
+            {
+            }
+            return PerPlayer.Replace(text, "");
+        }
+
+        /// <summary>
+        /// Parts of a join point save that differ between two games in step and that the simulation never reads as
+        /// saved; left out of the section hashes only, the saves stay as they are. From the 2026-10-21 join points:
+        /// - a pawn's reading and food policy is null until something reads it, and the getter then sets the
+        ///   default (the database's first policy): one game's interface had read it, the other's hadn't;
+        /// - a pawn's verbs are null until something reads them, and the getter makes them fresh, so a list of
+        ///   never-used verbs is the same as none;
+        /// - a 1x1 door's (and its blueprint's and frame's) rotation follows the camera (see SyncLanes).
+        /// </summary>
+        private class SaveNoise
+        {
+            private readonly HashSet<string> defaultPolicies = new();
+            private readonly HashSet<string> oneCellDoors;
+
+            private static HashSet<string> doorDefs;
+
+            public SaveNoise()
+            {
+                // Not DefaultReadingPolicy/DefaultFoodRestriction: they make a policy when there's none
+                void AddFirst<T>(List<T> list) where T : Policy
+                {
+                    if (list is { Count: > 0 }) defaultPolicies.Add(list[0].GetUniqueLoadID());
+                }
+
+                AddFirst(Current.Game?.readingPolicyDatabase?.AllReadingPolicies);
+                AddFirst(Current.Game?.foodRestrictionDatabase?.AllFoodRestrictions);
+                // With multifaction each faction has its own food policies
+                foreach (var data in Multiplayer.WorldComp?.factionData.Values ?? Enumerable.Empty<FactionWorldData>())
+                    AddFirst(data.foodRestrictionDatabase?.AllFoodRestrictions);
+
+                oneCellDoors = doorDefs ??= DefDatabase<ThingDef>.AllDefsListForReading
+                    .Where(d => SyncLanes.IsOneCellDoor(d) || d.entityDefToBuild is ThingDef built && SyncLanes.IsOneCellDoor(built))
+                    .Select(d => d.defName)
+                    .ToHashSet();
+            }
+
+            public void Remove(XmlElement root)
+            {
+                var stack = new Stack<XmlElement>();
+                stack.Push(root);
+                while (stack.Count > 0)
+                {
+                    var e = stack.Pop();
+                    switch (e.Name)
+                    {
+                        case "curAssignment" when e.ParentNode?.Name == "reading":
+                        case "curRestriction" when e.ParentNode?.Name == "foodRestriction":
+                            if (defaultPolicies.Contains(e.InnerText)) e.InnerText = "null";
+                            continue;
+                        case "verbs" when e.ParentNode?.Name == "verbTracker":
+                            if (e.GetAttribute("IsNull") != "True" && e.ChildNodes.Cast<XmlNode>().All(IsUnusedVerb))
+                            {
+                                e.RemoveAll();
+                                e.SetAttribute("IsNull", "True");
+                            }
+                            continue;
+                    }
+
+                    if (e["rot"] is { } rot && e["id"] != null && e["def"] is { } def && oneCellDoors.Contains(def.InnerText))
+                        e.RemoveChild(rot);
+
+                    foreach (XmlNode child in e.ChildNodes)
+                        if (child is XmlElement element)
+                            stack.Push(element);
+                }
+            }
+
+            // As made: never aimed or fired (the values a fresh Verb saves)
+            private static bool IsUnusedVerb(XmlNode li)
+            {
+                if (li is not XmlElement { Name: "li" }) return false;
+                foreach (XmlNode field in li.ChildNodes)
+                {
+                    var unused = field.Name switch
+                    {
+                        "loadID" => true,
+                        "currentTarget" or "currentDestination" => field.InnerText == "(0, 0, 0)",
+                        "lastShotTick" => field.InnerText == "-999999",
+                        "canHitNonTargetPawnsNow" => field.InnerText == "True",
+                        _ => false
+                    };
+                    if (!unused) return false;
+                }
+                return true;
+            }
+        }
 
         public static void HashSave(XmlNode gameNode)
         {
@@ -164,12 +265,19 @@ namespace Multiplayer.Client.Desyncs
             {
                 void AddSection(string name, XmlNode node)
                 {
-                    // Components and the world are lists of unrelated parts; name each one
+                    // Components and the world are lists of unrelated parts; name each one, and each of the world's
+                    // components (game/world/components#10/DefensivePositions.WorldData#14)
                     if (node.Name is "components" or "world" && node.HasChildNodes)
                     {
                         int i = 0;
                         foreach (XmlNode child in node.ChildNodes)
-                            sections[$"{name}/{child.Attributes?["Class"]?.Value ?? child.Name}#{i++}"] = child.OuterXml;
+                        {
+                            var childName = $"{name}/{child.Attributes?["Class"]?.Value ?? child.Name}#{i++}";
+                            if (node.Name == "world" && child.Name == "components" && child.HasChildNodes)
+                                AddSection(childName, child);
+                            else
+                                sections[childName] = child.OuterXml;
+                        }
                         return;
                     }
                     sections[name] = node.OuterXml;
@@ -204,7 +312,8 @@ namespace Multiplayer.Client.Desyncs
             if (!message.Contains("Join point save")) return;
             try
             {
-                var names = saveSections.Keys.Where(k => message.Contains(k)).ToList();
+                // The rows read "Join point save: <section>: <hash> (host) vs ..."
+                var names = saveSections.Keys.Where(k => message.Contains(k + ":")).ToList();
                 if (names.Count == 0) names = saveSections.Keys.ToList();
                 var text = string.Join("\n\n", names.Select(n => $"=== {n}\n{saveSections[n]}"));
                 System.IO.Directory.CreateDirectory(Multiplayer.DesyncsDir);
@@ -218,26 +327,34 @@ namespace Multiplayer.Client.Desyncs
             }
         }
 
+        /// <summary>The tick of the join point command being run; every game gets the command with the same tick.</summary>
+        public static int joinPointTick;
+
         /// <summary>
-        /// After a join point: send this game's fingerprint again (the server compares it with the host's), and check
-        /// that saving and reloading changed none of this game's lanes.
+        /// After a join point: send this game's fingerprint again (the server compares it with the host's from the
+        /// same join point), and check that saving and reloading changed none of this game's lanes.
         /// </summary>
         public static void AfterJoinPoint(Dictionary<string, ulong> lanesBefore, Dictionary<string, string> leavesBefore)
         {
             try
             {
+                var noise = new SaveNoise();
                 var rows = Build().Concat(saveSections.Select(kv => new FingerprintRow
                 {
                     name = "Join point save: " + kv.Key,
-                    value = FaultSignature.Hash(ForCompare(kv.Value)).ToString("X8"),
+                    value = FaultSignature.Hash(ForCompare(kv.Value, noise)).ToString("X8"),
                     warn = true
                 })).ToArray();
-                Multiplayer.Client?.SendFragmented(new ClientFingerprintPacket { rows = rows }.Serialize());
+                Multiplayer.Client?.SendFragmented(new ClientFingerprintPacket { joinPoint = joinPointTick, rows = rows }.Serialize());
             }
             catch (Exception e)
             {
                 MpLog.Error($"Couldn't send the fingerprint after the join point: {e}");
             }
+
+            // What was destroyed or despawned while loading and in the first frame after goes in the same file
+            var selfCheckPath = System.IO.Path.Combine(Multiplayer.DesyncsDir, $"selfcheck-{Multiplayer.username}-{Find.TickManager.TicksGame}.txt");
+            JoinPointDrops.StopAfterNextFrame(selfCheckPath);
 
             if (lanesBefore == null) return;
 
@@ -250,6 +367,7 @@ namespace Multiplayer.Client.Desyncs
             }
 
             var details = new List<string>();
+            var full = new System.Text.StringBuilder();
             foreach (var key in changed.ToList())
                 if (leavesBefore != null && leavesBefore.TryGetValue(key, out var before))
                 {
@@ -265,6 +383,11 @@ namespace Multiplayer.Client.Desyncs
                     }
                     var diff = LeafDiff.Diff(before, afterLeaves, "before", "after");
                     details.Add($"{key}: {string.Join(" | ", diff.Split('\n').Take(5))}");
+                    full.Append($"=== {key}\n{diff}\n\n");
+                }
+                else
+                {
+                    full.Append($"=== {key}\n(only this lane's checksum is kept before the save)\n\n");
                 }
 
             if (changed.Count == 0)
@@ -273,8 +396,23 @@ namespace Multiplayer.Client.Desyncs
                 return;
             }
 
+            var written = false;
+            try
+            {
+                System.IO.Directory.CreateDirectory(Multiplayer.DesyncsDir);
+                System.IO.File.WriteAllText(selfCheckPath,
+                    $"{Multiplayer.username}: join point self-check at tick {Find.TickManager.TicksGame}, every lane that saving and reloading " +
+                    $"changed (before = the live game, after = the reloaded one)\n\n{full}");
+                written = true;
+            }
+            catch (Exception e)
+            {
+                MpLog.Error($"Couldn't write the join point self-check: {e}");
+            }
+
             MpLog.Error($"Join point self-check: saving and reloading changed {string.Join(", ", changed)}. Some state the " +
-                        $"simulation uses isn't saved (or is rebuilt differently), so a joiner's game will differ there.\n{string.Join("\n", details)}");
+                        $"simulation uses isn't saved (or is rebuilt differently), so a joiner's game will differ there." +
+                        (written ? $" The full diff is in {selfCheckPath}" : "") + $"\n{string.Join("\n", details)}");
         }
 
         /// <summary>
@@ -337,6 +475,7 @@ namespace Multiplayer.Client.Desyncs
         /// <summary>The lanes and entity leaves before a join point's save, for <see cref="AfterJoinPoint"/>.</summary>
         public static (Dictionary<string, ulong> lanes, Dictionary<string, string> leaves) BeforeJoinPoint()
         {
+            JoinPointDrops.Arm();
             try
             {
                 var lanes = SyncLanes.ComputeAll();

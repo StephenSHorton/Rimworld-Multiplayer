@@ -225,7 +225,7 @@ namespace Multiplayer.Common
 
         [TypedPacketHandler]
         public void HandleFingerprint(Desyncs.ClientFingerprintPacket packet) =>
-            Server.referee.OnFingerprint(Player, packet.rows, Server.ArbiterPlaying ? Player.IsArbiter : Player.IsHost);
+            Server.referee.OnFingerprint(Player, packet.joinPoint, packet.rows, Server.ArbiterPlaying ? Player.IsArbiter : Player.IsHost);
 
         [TypedPacketHandler]
         public void HandleFreeze(ClientFreezePacket packet)
