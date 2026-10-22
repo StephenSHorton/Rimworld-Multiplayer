@@ -78,10 +78,11 @@ namespace Multiplayer.Client.Desyncs
                     .Select(m =>
                     {
                         var info = Harmony.GetPatchInfo(m);
-                        if (info == null) return $"{m.DeclaringType?.FullName}.{m.Name}|";
+                        if (info == null) return null;
                         var owners = info.Owners.Where(o => !DiagnosticHarmonyIds.Contains(o)).OrderBy(o => o, StringComparer.Ordinal).ToList();
-                        // Patched only by a diagnostic tool armed on this game alone
-                        if (owners.Count == 0 && info.Owners.Count > 0) return null;
+                        // Patched only by a diagnostic tool armed on this game alone, or by no one: Harmony keeps
+                        // listing a method after its last patch is removed (Rimkit's profiler disarming)
+                        if (owners.Count == 0) return null;
                         return $"{m.DeclaringType?.FullName}.{m.Name}|{string.Join(",", owners)}";
                     })
                     .Where(s => s != null)
@@ -104,7 +105,8 @@ namespace Multiplayer.Client.Desyncs
                 }
 
                 // Some mods patch when a game loads, and a joiner is still at the menu: compared after the join point.
-                // Diagnostic owners (DiagnosticHarmonyIds) are already left out
+                // Diagnostic owners (DiagnosticHarmonyIds) and methods no one patches any more are already left out,
+                // from the count and the dev mode file alike
                 Add("Harmony patches", $"{patched.Count} methods, {h:X16}", warn: true);
             });
 
