@@ -142,6 +142,61 @@ namespace Multiplayer.Client
         private static bool SteamModInstalled(ModMetaData mod) =>
             ((EItemState)SteamUGC.GetItemState(mod.GetPublishedFileId()))
             .HasFlag(EItemState.k_EItemStateInstalled | EItemState.k_EItemStateSubscribed);
+
+        // Names the mods behind a mod list mismatch, so the log and the window can say which ones differ
+        public static ModListDetails DiffModList(RemoteData remote, List<ModMetaData> localMods)
+        {
+            var details = new ModListDetails();
+            var localById = localMods.ToDictionaryPermissive(m => m.PackageIdNonUnique, m => m);
+            var remoteIds = new HashSet<string>(remote.RemoteModIds);
+
+            foreach (var m in remote.remoteMods)
+            {
+                var row = new ModDiffRow(m.name, m.packageId, m.steamId);
+
+                if (localById.TryGetValue(m.packageId, out var local))
+                {
+                    if (local.Source != m.source)
+                        details.otherSource.Add(row);
+                }
+                else if (!m.Installed)
+                    details.missing.Add(row);
+                else
+                    details.inactive.Add(row);
+            }
+
+            foreach (var m in localMods)
+                if (!remoteIds.Contains(m.PackageIdNonUnique))
+                    details.extra.Add(new ModDiffRow(m.Name, m.PackageIdNonUnique, (ulong)m.GetPublishedFileId()));
+
+            details.orderDiffers = !details.SetsDiffer &&
+                !remote.RemoteModIds.SequenceEqual(localMods.Select(m => m.PackageIdNonUnique));
+
+            return details;
+        }
+
+        // Whether a copy of a host mod from the host's source is installed here. The join compares
+        // (packageId, source), so a Mods folder copy doesn't stand in for the host's Workshop copy or the reverse
+        public static bool HasCopyFromSource(ModInfo mod) =>
+            ModLister.AllInstalledMods.Any(a =>
+                a.PackageIdNonUnique == mod.packageId &&
+                (mod.source == ContentSource.Undefined || a.Source == mod.source) &&
+                (!a.OnSteamWorkshop || SteamModInstalled(a)));
+
+        // The id to write into ModsConfig for a host mod: the real id (with the _steam postfix only when
+        // RimWorld gave it one) of the copy from the host's source, else the active or any installed copy,
+        // or the bare id when nothing is installed
+        public static string ResolveInstalledId(ModInfo mod)
+        {
+            var installed = ModLister.AllInstalledMods.Where(a => a.PackageIdNonUnique == mod.packageId).ToList();
+            var pick =
+                installed.FirstOrDefault(a => a.Source == mod.source) ??
+                ModsConfig.ActiveModsInLoadOrder.FirstOrDefault(a => a.PackageIdNonUnique == mod.packageId) ??
+                installed.FirstOrDefault(a => a.OnSteamWorkshop) ??
+                installed.FirstOrDefault();
+
+            return pick?.PackageId ?? mod.packageId;
+        }
     }
 
     public class RemoteData
@@ -219,6 +274,40 @@ namespace Multiplayer.Client
         None, NoMatchAsSets, WrongOrder
     }
 
+    public record ModDiffRow(string Name, string PackageId, ulong SteamId)
+    {
+        public override string ToString() =>
+            $"{Name} [{PackageId}{(SteamId != 0 ? $", workshop {SteamId}" : "")}]";
+    }
+
+    public class ModListDetails
+    {
+        public List<ModDiffRow> missing = new();     // On the host's list, not installed here
+        public List<ModDiffRow> inactive = new();    // On the host's list, installed here but not active
+        public List<ModDiffRow> extra = new();       // Active here, not on the host's list
+        public List<ModDiffRow> otherSource = new(); // Active on both sides from a different source (Workshop vs Mods folder)
+        public bool orderDiffers;                    // Only set when the sets match
+
+        public bool SetsDiffer => missing.Any() || inactive.Any() || extra.Any() || otherSource.Any();
+        public bool Any => SetsDiffer || orderDiffers;
+
+        public IEnumerable<(string label, List<ModDiffRow> rows)> Groups()
+        {
+            if (missing.Any()) yield return ("missing here", missing);
+            if (inactive.Any()) yield return ("not active here", inactive);
+            if (extra.Any()) yield return ("active only here", extra);
+            if (otherSource.Any()) yield return ("different source", otherSource);
+        }
+
+        public override string ToString()
+        {
+            var parts = Groups().Select(g => $"{g.label}: {string.Join(", ", g.rows)}").ToList();
+            if (orderDiffers)
+                parts.Add("order differs");
+            return string.Join("; ", parts);
+        }
+    }
+
     public record ModConfig(string ModId, string FileName, string Contents);
 
     public class ModFileDict : IEnumerable<KeyValuePair<string, Dictionary<string, ModFile>>>
@@ -274,6 +363,9 @@ namespace Multiplayer.Client
         public bool Installed => JoinData.IsModInstalledCached(packageId);
 
         public bool CanSubscribe => steamId != 0;
+
+        // Fix and restart can only fetch the host's copy when the host runs it from the Workshop
+        public bool CanDownload => CanSubscribe && source == ContentSource.SteamWorkshop;
     }
 
     public struct ModFile(string absPath, string relPath, int hash)
