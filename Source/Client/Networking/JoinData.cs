@@ -175,17 +175,23 @@ namespace Multiplayer.Client
             return details;
         }
 
-        // The id to write into ModsConfig for a host mod: the active or installed copy's real id
-        // (with the _steam postfix only when RimWorld gave it one), or the bare id when nothing is installed
+        // Whether a copy of a host mod from the host's source is installed here. The join compares
+        // (packageId, source), so a Mods folder copy doesn't stand in for the host's Workshop copy or the reverse
+        public static bool HasCopyFromSource(ModInfo mod) =>
+            ModLister.AllInstalledMods.Any(a =>
+                a.PackageIdNonUnique == mod.packageId &&
+                (mod.source == ContentSource.Undefined || a.Source == mod.source) &&
+                (!a.OnSteamWorkshop || SteamModInstalled(a)));
+
+        // The id to write into ModsConfig for a host mod: the real id (with the _steam postfix only when
+        // RimWorld gave it one) of the copy from the host's source, else the active or any installed copy,
+        // or the bare id when nothing is installed
         public static string ResolveInstalledId(ModInfo mod)
         {
-            var active = ModsConfig.ActiveModsInLoadOrder.FirstOrDefault(a => a.PackageIdNonUnique == mod.packageId);
-            if (active != null)
-                return active.PackageId;
-
             var installed = ModLister.AllInstalledMods.Where(a => a.PackageIdNonUnique == mod.packageId).ToList();
             var pick =
                 installed.FirstOrDefault(a => a.Source == mod.source) ??
+                ModsConfig.ActiveModsInLoadOrder.FirstOrDefault(a => a.PackageIdNonUnique == mod.packageId) ??
                 installed.FirstOrDefault(a => a.OnSteamWorkshop) ??
                 installed.FirstOrDefault();
 
@@ -357,6 +363,9 @@ namespace Multiplayer.Client
         public bool Installed => JoinData.IsModInstalledCached(packageId);
 
         public bool CanSubscribe => steamId != 0;
+
+        // Fix and restart can only fetch the host's copy when the host runs it from the Workshop
+        public bool CanDownload => CanSubscribe && source == ContentSource.SteamWorkshop;
     }
 
     public struct ModFile(string absPath, string relPath, int hash)
