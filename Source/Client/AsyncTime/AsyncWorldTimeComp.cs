@@ -177,10 +177,10 @@ public class AsyncWorldTimeComp : IExposable, ITickable
     /// the tick manager should hold the world's clock, but a map context that didn't restore it (one opened inside
     /// itself, 2026-10-21) left a map's, and a save stores the tick manager's.
     /// </summary>
-    public void ApplyWorldClock(string where, bool speed = true)
+    public void ApplyWorldClock(string where, bool speed = true, bool warn = true)
     {
         var tm = Find.TickManager;
-        if (tm.ticksGameInt != worldTicks || tm.gameStartAbsTick != gameStartAbsTick || tm.slower != slower)
+        if (warn && (tm.ticksGameInt != worldTicks || tm.gameStartAbsTick != gameStartAbsTick || tm.slower != slower))
         {
             if (clockMismatches++ % 100 == 0)
             {
@@ -211,7 +211,8 @@ public class AsyncWorldTimeComp : IExposable, ITickable
 
         var prev = TimeSnapshot.Current();
         // Not the speed: a load takes the world's from its own timeSpeed, saved first under the same name
-        comp.ApplyWorldClock("a save", speed: false);
+        // A save made inside a map's context (in a tick or a command) finds that map's clock there rightly
+        comp.ApplyWorldClock("a save", speed: false, warn: !Multiplayer.Ticking && !Multiplayer.ExecutingCmds);
         try
         {
             return save();
