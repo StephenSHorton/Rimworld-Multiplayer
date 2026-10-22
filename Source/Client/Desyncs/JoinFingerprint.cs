@@ -125,7 +125,7 @@ namespace Multiplayer.Client.Desyncs
                         continue;
                     }
                     // Settings can change prices, and a joiner only gets the host's settings with the save
-                    Add($"Market value: {def.defName}", F(value), warn: true);
+                    Add(Fingerprint.MarketValueRowPrefix + def.defName, F(value), warn: true);
                 }
             });
 
@@ -584,7 +584,8 @@ namespace Multiplayer.Client.Desyncs
                         changed.Remove(key);
                         continue;
                     }
-                    var diff = LeafDiff.Diff(before, afterLeaves, "before", "after");
+                    var diff = LeafDiff.Diff(WithoutReloadEffects(before, afterLeaves, mapTicksBefore.TryGetValue(mapId, out var tickAt) ? tickAt : null),
+                        afterLeaves, "before", "after");
                     details.Add($"{key}: {string.Join(" | ", diff.Split('\n').Take(5))}");
                     full.Append($"=== {key}\n{diff}\n\n");
                 }
@@ -595,7 +596,7 @@ namespace Multiplayer.Client.Desyncs
 
             if (changed.Count == 0)
             {
-                MpLog.Log($"Join point self-check: all {after.Count} lanes are the same after saving and reloading (plant growth rounded by the save, cold plants made leafless again on load)");
+                MpLog.Log($"Join point self-check: all {after.Count} lanes are the same after saving and reloading (plant growth rounded by the save, cold plants made leafless again on load, pawn paths, stopped pawns' destinations and destroyed targets the save drops)");
                 return;
             }
 
@@ -626,6 +627,7 @@ namespace Multiplayer.Client.Desyncs
         ///   tick, while the live game's plants keep the tick of their last load or long tick. Every load also ticks
         ///   each map once (LoadPatch), so a map left paused since the host's reload is one tick past it: the first
         ///   join point after a host at tick 8 showed every cold plant as leafless 8 (before) vs 9 (after), 2026-10-20
+        /// - what vanilla's save leaves out of a pawn's steering (see <see cref="DroppedBySave"/>).
         /// </summary>
         private static bool OnlyReloadEffects(string before, string after, int? reloadTick)
         {
@@ -636,22 +638,98 @@ namespace Multiplayer.Client.Desyncs
             foreach (var pair in a)
             {
                 if (!b.TryGetValue(pair.Key, out var other)) return false;
-                if (other == pair.Value) continue;
-
-                var fa = LeafDiff.Split(pair.Value);
-                var fb = LeafDiff.Split(other);
-                foreach (var key in fa.Keys.Union(fb.Keys))
-                {
-                    fa.TryGetValue(key, out var va);
-                    fb.TryGetValue(key, out var vb);
-                    if (va == vb) continue;
-                    if (key == "leafless" && reloadTick is { } tick && vb == tick.ToString(CultureInfo.InvariantCulture)) continue;
-                    if (key != "growth" || !TryFloat(va, out var x) || !TryFloat(vb, out var y) || Math.Abs(x - y) > 1f / 255f + 1e-6f)
-                        return false;
-                }
+                if (!OnlyReloadEffectsInLine(pair.Value, other, reloadTick)) return false;
             }
 
             return true;
+        }
+
+        private static bool OnlyReloadEffectsInLine(string before, string after, int? reloadTick)
+        {
+            if (before == after) return true;
+
+            var fa = LeafDiff.Split(before);
+            var fb = LeafDiff.Split(after);
+            foreach (var key in fa.Keys.Union(fb.Keys))
+            {
+                fa.TryGetValue(key, out var va);
+                fb.TryGetValue(key, out var vb);
+                if (va == vb) continue;
+                if (key == "leafless" && reloadTick is { } tick && vb == tick.ToString(CultureInfo.InvariantCulture)) continue;
+                if (DroppedBySave(key, va, vb, fa, fb)) continue;
+                if (key != "growth" || !TryFloat(va, out var x) || !TryFloat(vb, out var y) || Math.Abs(x - y) > 1f / 255f + 1e-6f)
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// A pawn leaf field that vanilla's save doesn't keep, so every game's reload changes it the same way
+        /// (1.7 decompile):
+        /// - path: Pawn_PathFollower.ExposeData never saves curPath; a reloaded pawn has none and asks for a new one;
+        /// - dest: it saves destination only while moving, and a reloaded pather is new, so a stopped pawn's last
+        ///   destination comes back as default(LocalTargetInfo), which is the cell (0,0);
+        /// - tA, tB, stanceFocus, enemy: Job.targetA/B and Stance_Busy.focusTarg (Scribe_TargetInfo) and
+        ///   Pawn_MindState.enemyTarget (Scribe_References) write "null" for a destroyed thing
+        ///   (Scribe_References.CheckSaveReferenceToDestroyedThing), which loads as none. A mortar crew's job keeps
+        ///   the shell it loaded as target B after JobDriver_ManTurret destroyed it (ClearAndDestroyContents).
+        ///   Only when that thing was destroyed at the save (<see cref="destroyedTargetsBefore"/>); a live thing that
+        ///   loads as none is a lost reference and still reported.
+        /// </summary>
+        private static bool DroppedBySave(string key, string va, string vb, Dictionary<string, string> fa, Dictionary<string, string> fb)
+        {
+            switch (key)
+            {
+                case "path":
+                    return va == "True" && vb == "False";
+                case "dest":
+                    return vb == "(0,0)" && fa.TryGetValue("moving", out var ma) && ma == "False" &&
+                           fb.TryGetValue("moving", out var mb) && mb == "False";
+                case "tA":
+                case "tB":
+                case "stanceFocus":
+                case "enemy":
+                    return vb == "none" && va != null && destroyedTargetsBefore.Contains(va);
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The before leaves with every line whose only changes are reload effects replaced by its after line, so the
+        /// self-check's diff shows only the changes that matter.
+        /// </summary>
+        private static string WithoutReloadEffects(string before, string after, int? reloadTick)
+        {
+            var b = Index(after);
+            return string.Join("\n", before.Split('\n').Select(line =>
+                line.Length > 0 && b.TryGetValue(line.Split(' ')[0], out var other) && OnlyReloadEffectsInLine(line, other, reloadTick)
+                    ? other
+                    : line));
+        }
+
+        // ThingIDs of the destroyed things pawns' steering targets named before the join point's save
+        private static HashSet<string> destroyedTargetsBefore = new();
+
+        private static HashSet<string> DestroyedSteeringTargets()
+        {
+            var result = new HashSet<string>();
+            void Check(Thing t)
+            {
+                if (t != null && t.Destroyed) result.Add(t.ThingID);
+            }
+
+            foreach (var map in Find.Maps)
+                foreach (var p in map.mapPawns.AllPawnsSpawned)
+                {
+                    var job = p.jobs?.curJob;
+                    Check(job?.targetA.Thing);
+                    Check(job?.targetB.Thing);
+                    Check((p.stances?.curStance as Stance_Busy)?.focusTarg.Thing);
+                    Check(p.mindState?.enemyTarget);
+                }
+            return result;
         }
 
         private static Dictionary<string, string> Index(string leaves)
@@ -715,6 +793,7 @@ namespace Multiplayer.Client.Desyncs
                 var lanes = SyncLanes.ComputeAll();
                 mapTicksBefore = Find.Maps.ToDictionary(m => m.uniqueID, m => m.AsyncTime().mapTicks);
                 worldValuesBefore = WorldValues();
+                destroyedTargetsBefore = DestroyedSteeringTargets();
                 var leaves = new Dictionary<string, string>();
                 foreach (var map in Find.Maps)
                     foreach (var lane in new[] { "pawns", "things", "plants" })

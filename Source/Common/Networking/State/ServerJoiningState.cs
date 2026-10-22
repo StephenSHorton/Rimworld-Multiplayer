@@ -131,10 +131,10 @@ public class ServerJoiningState : AsyncConnectionState
         // Process facts the simulation depends on that no save carries (prices as computed, sync handlers, mod
         // settings): a joiner that differs would diverge, so refuse it and say which rows differ
         var reference = Server.referee.ReferenceFingerprint ?? serverInitData.Fingerprint;
-        // Not the join point save's sections: the joiner at the menu has none yet; they're compared after its first
-        // join point
+        // Not the join point save's sections (the joiner at the menu has none yet) or the market values (they come
+        // from the loaded game); they're compared after its first join point
         var (blocking, warnings) = Desyncs.Fingerprint.Compare(
-            Desyncs.Fingerprint.WithoutJoinSave(reference), Desyncs.Fingerprint.WithoutJoinSave(packet.fingerprint), "host", Player.Username);
+            Desyncs.Fingerprint.AtTheDoor(reference), Desyncs.Fingerprint.AtTheDoor(packet.fingerprint), "host", Player.Username);
         if (warnings.Count > 0)
             ServerLog.Log($"Join fingerprint warnings for {Player.Username}:\n{Desyncs.Fingerprint.Describe(warnings)}");
         if (blocking.Count > 0 && reference is { Length: > 0 } && packet.fingerprint is { Length: > 0 })

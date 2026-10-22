@@ -38,6 +38,19 @@ public static class Fingerprint
     public static IEnumerable<FingerprintRow> WithoutJoinSave(IEnumerable<FingerprintRow>? rows) =>
         (rows ?? []).Where(r => r.name == null || !r.name.StartsWith(JoinSaveRowPrefix, System.StringComparison.Ordinal));
 
+    /// <summary>The name prefix of the rows that hold an item's or building's market value as the game computed it.</summary>
+    public const string MarketValueRowPrefix = "Market value: ";
+
+    /// <summary>
+    /// The rows compared when a player joins from the menu: without the join point save's sections, and without the
+    /// market values, which come from the loaded game. A game at the menu prices with no game's difficulty and mod
+    /// state (2026-10-21/22, every join: Turret_Mortar 900 (host) vs 635, Frame_Turret_Mortar 890 vs 0, from the
+    /// difficulty's cost list and Vanilla Trading Expanded's price modifiers). They're warn rows, compared after the
+    /// joiner's first join point, when both games have loaded the same save.
+    /// </summary>
+    public static IEnumerable<FingerprintRow> AtTheDoor(IEnumerable<FingerprintRow>? rows) =>
+        WithoutJoinSave(rows).Where(r => r.name == null || !r.name.StartsWith(MarketValueRowPrefix, System.StringComparison.Ordinal));
+
     /// <summary>The rows that differ, blocking ones first; each line names the row and both values.</summary>
     public static (List<string> blocking, List<string> warnings) Compare(
         IEnumerable<FingerprintRow>? reference, IEnumerable<FingerprintRow>? other, string refName, string otherName)

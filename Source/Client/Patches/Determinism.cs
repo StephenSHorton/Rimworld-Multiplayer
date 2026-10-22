@@ -28,7 +28,48 @@ namespace Multiplayer.Client.Patches
         static void Postfix(PawnTweener __instance, ref Vector3 __result)
         {
             if (Multiplayer.Client == null || Multiplayer.InInterface || returnTruePosition) return;
-            __result = __instance.TweenedPosRoot();
+            __result = SimRoot(__instance);
+        }
+
+        /// <summary>
+        /// The tweener's root position computed afresh. TweenedPosRoot keeps the collision offset for the rest of a
+        /// TicksGame value, and the interface fills that cache too (PreDrawPosCalculation in a drawn frame, at the
+        /// tick the map last ran), so a command run at that tick on a game that drew the pawn read the drawn frame's
+        /// offset. Forgetting it first makes every simulation read depend on the simulation only.
+        /// </summary>
+        public static Vector3 SimRoot(PawnTweener tweener)
+        {
+            tweener.lastOffsetTick = -1;
+            return tweener.TweenedPosRoot();
+        }
+    }
+
+    /// <summary>
+    /// A pawn's DrawPos in the simulation (Multiplayer, not the interface). Vanilla adds the tweener's position to the
+    /// jitter (hits push the drawn pawn back, decaying per tick), the lean (a shooter leaning out of cover), the job's
+    /// body offset (dancing, laying in a big bed, carrying a baby) and the flight offset. The simulation reads it
+    /// wherever it aims or faces: Pawn_RotationTracker.Face compares the target point with the pawn's own DrawPos,
+    /// FaceTarget and a busy stance pass the target thing's DrawPos (another pawn's DrawPos when the target is a
+    /// pawn), and Verb_LaunchProjectile launches from the caster's DrawPos. UpdateRotation runs every map tick from
+    /// Pawn.ProcessPostTickVisuals (AsyncTimeComp.Tick). The jitter, the lean and the dance's jump are visual state
+    /// that no save carries (a game that loads gets zeros, one that played through keeps its own), and
+    /// RotFromAngleBiased turns a small difference near 30, 150, 210 or 330 degrees into a different rotation
+    /// (2026-10-22: Human11399 facing its job target turned 3->1 on the host and 3->0 on the client in
+    /// Face < FaceTarget < UpdateRotation, then positions and the random state split).
+    /// Here the simulation gets the tweener's root (cell, move progress, sitting and collision offsets) plus the
+    /// flight offset, which comes from the saved flight state; the interface keeps vanilla's position for drawing.
+    /// </summary>
+    [EarlyPatch]
+    [HarmonyPatch(typeof(Pawn_DrawTracker), nameof(Pawn_DrawTracker.DrawPos), MethodType.Getter)]
+    static class SimDrawPosPatch
+    {
+        static bool Prefix(Pawn_DrawTracker __instance, ref Vector3 __result)
+        {
+            if (Multiplayer.Client == null || Multiplayer.InInterface || DrawPosPatch.returnTruePosition) return true;
+            var pawn = __instance.pawn;
+            __result = (DrawPosPatch.SimRoot(__instance.tweener) + __instance.FlyingOffset())
+                .WithY(pawn.def.Altitude + __instance.FlightYOffset() + __instance.SeededYOffset);
+            return false;
         }
     }
 

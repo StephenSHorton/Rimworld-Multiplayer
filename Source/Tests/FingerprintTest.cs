@@ -51,6 +51,24 @@ public class FingerprintTest
     }
 
     [Test]
+    public void AtTheDoorLeavesOutMarketValues()
+    {
+        // 2026-10-22, every join from the menu: the mortar's price comes from the difficulty's cost list and VTE's
+        // price modifiers, which a game at the menu doesn't have
+        var host = new[]
+        {
+            Row($"{Fingerprint.JoinSaveRowPrefix}map 0/s1", "a", warn: true), Row("Market value: Turret_Mortar", "900", warn: true),
+            Row("Language", "English", warn: true), Row("Sync handlers", "1")
+        };
+        var joiner = new[] { Row("Market value: Turret_Mortar", "635", warn: true), Row("Language", "German", warn: true), Row("Sync handlers", "2") };
+
+        var (blocking, warnings) = Fingerprint.Compare(Fingerprint.AtTheDoor(host), Fingerprint.AtTheDoor(joiner), "host", "Blake");
+
+        Assert.That(blocking, Is.EqualTo(new[] { "Sync handlers: 1 (host) vs 2 (Blake)" }));
+        Assert.That(warnings, Is.EqualTo(new[] { "Language: English (host) vs German (Blake)" }));
+    }
+
+    [Test]
     public void DifferingNamesListsEveryDifferingRow()
     {
         // More rows than a verdict message names (2026-10-21: the dump held only the six named), names with ": "
