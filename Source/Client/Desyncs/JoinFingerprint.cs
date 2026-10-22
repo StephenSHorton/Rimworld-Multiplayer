@@ -202,6 +202,17 @@ namespace Multiplayer.Client.Desyncs
         /// - a pawn's verbs are null until something reads them, and the getter makes them fresh, so a list of
         ///   never-used verbs is the same as none;
         /// - a 1x1 door's (and its blueprint's and frame's) rotation follows the camera (see SyncLanes).
+        /// Later on 2026-10-21:
+        /// - the apparel and drug policy the same way (curOutfit, curAssignedDrugs: the first policy);
+        /// - a pawn's inventory stock entry is made with the group's default on first read (the Assign tab, and
+        ///   every load fills them all), so an entry equal to the default is the same as none;
+        /// - a non-player faction's mech color is set to its color on first read (drawing);
+        /// - a battle's name is made on first read (the combat log tab);
+        /// - the view toggles in the play settings (overlays, icons, north up, day and night on the planet) are
+        ///   each player's own; autoHomeArea, autoRebuild, useWorkPriorities and the default care are kept;
+        /// - a game, world or map component whose class has an attribute named ClientOnlyAttribute (Rimkit marks
+        ///   components that only one game's interface fills, such as BetterArchitect.MysteryUnlockTracker) is
+        ///   compared by its class only.
         /// </summary>
         private class SaveNoise
         {
@@ -209,6 +220,7 @@ namespace Multiplayer.Client.Desyncs
             private readonly HashSet<string> oneCellDoors;
 
             private static HashSet<string> doorDefs;
+            private static readonly Dictionary<string, bool> clientOnly = new();
 
             public SaveNoise()
             {
@@ -220,9 +232,15 @@ namespace Multiplayer.Client.Desyncs
 
                 AddFirst(Current.Game?.readingPolicyDatabase?.AllReadingPolicies);
                 AddFirst(Current.Game?.foodRestrictionDatabase?.AllFoodRestrictions);
-                // With multifaction each faction has its own food policies
+                AddFirst(Current.Game?.outfitDatabase?.AllOutfits);
+                AddFirst(Current.Game?.drugPolicyDatabase?.AllPolicies);
+                // With multifaction each faction has its own food, apparel and drug policies
                 foreach (var data in Multiplayer.WorldComp?.factionData.Values ?? Enumerable.Empty<FactionWorldData>())
+                {
                     AddFirst(data.foodRestrictionDatabase?.AllFoodRestrictions);
+                    AddFirst(data.outfitDatabase?.AllOutfits);
+                    AddFirst(data.drugPolicyDatabase?.AllPolicies);
+                }
 
                 oneCellDoors = doorDefs ??= DefDatabase<ThingDef>.AllDefsListForReading
                     .Where(d => SyncLanes.IsOneCellDoor(d) || d.entityDefToBuild is ThingDef built && SyncLanes.IsOneCellDoor(built))
@@ -237,11 +255,37 @@ namespace Multiplayer.Client.Desyncs
                 while (stack.Count > 0)
                 {
                     var e = stack.Pop();
+
+                    if (e.GetAttribute("Class") is { Length: > 0 } cls && IsClientOnly(cls))
+                    {
+                        e.RemoveAll();
+                        e.SetAttribute("Class", cls);
+                        e.IsEmpty = true;
+                        continue;
+                    }
+
                     switch (e.Name)
                     {
                         case "curAssignment" when e.ParentNode?.Name == "reading":
                         case "curRestriction" when e.ParentNode?.Name == "foodRestriction":
+                        case "curOutfit" when e.ParentNode?.Name == "outfits":
+                        case "curAssignedDrugs" when e.ParentNode?.Name == "drugs":
                             if (defaultPolicies.Contains(e.InnerText)) e.InnerText = "null";
+                            continue;
+                        case "stockEntries" when e.ParentNode?.Name == "inventoryStock":
+                            RemoveDefaultStock(e);
+                            continue;
+                        case "li" when e.ParentNode?.Name == "allFactions":
+                            if (e["mechColor"] is { } mechColor &&
+                                DefDatabase<FactionDef>.GetNamedSilentFail(e["def"]?.InnerText ?? "") is { isPlayer: false })
+                                e.RemoveChild(mechColor);
+                            break;
+                        case "li" when e.ParentNode?.Name == "battles":
+                            if (e["battleName"] is { } battleName) e.RemoveChild(battleName);
+                            break;
+                        case "playSettings":
+                            foreach (var toggle in e.ChildNodes.OfType<XmlElement>().Where(c => IsViewToggle(c.Name)).ToList())
+                                e.RemoveChild(toggle);
                             continue;
                         case "verbs" when e.ParentNode?.Name == "verbTracker":
                             if (e.GetAttribute("IsNull") != "True" && e.ChildNodes.Cast<XmlNode>().All(IsUnusedVerb))
@@ -259,6 +303,47 @@ namespace Multiplayer.Client.Desyncs
                         if (child is XmlElement element)
                             stack.Push(element);
                 }
+            }
+
+            private static bool IsViewToggle(string name) =>
+                name.StartsWith("show", StringComparison.Ordinal) || name is "lockNorthUp" or "usePlanetDayNightSystem";
+
+            // Matched by name: Multiplayer can't reference the mods that mark their components
+            private static bool IsClientOnly(string className)
+            {
+                if (!clientOnly.TryGetValue(className, out var result))
+                {
+                    var type = GenTypes.GetTypeInAnyAssembly(className);
+                    result = type != null && type.GetCustomAttributes(true).Any(a => a.GetType().Name == "ClientOnlyAttribute");
+                    clientOnly[className] = result;
+                }
+                return result;
+            }
+
+            // A dictionary saves as parallel keys and values lists; an entry as made by CreateDefaultEntryFor
+            // (count the group's min, saved only when not 0, and its default thing) goes from both
+            private static void RemoveDefaultStock(XmlElement entries)
+            {
+                if (entries["keys"] is not { } keys || entries["values"] is not { } values) return;
+                var keyList = keys.ChildNodes.OfType<XmlElement>().ToList();
+                var valueList = values.ChildNodes.OfType<XmlElement>().ToList();
+                if (keyList.Count != valueList.Count) return;
+
+                for (int i = 0; i < keyList.Count; i++)
+                {
+                    if (DefDatabase<InventoryStockGroupDef>.GetNamedSilentFail(keyList[i].InnerText) is not { } group) continue;
+                    var count = valueList[i]["count"]?.InnerText ?? "0";
+                    var thing = valueList[i]["thingDef"]?.InnerText;
+                    if (count == group.min.ToString(CultureInfo.InvariantCulture) && thing == group.DefaultThingDef?.defName)
+                    {
+                        keys.RemoveChild(keyList[i]);
+                        values.RemoveChild(valueList[i]);
+                    }
+                }
+
+                // A game that had none saved <keys />, one emptied here would write <keys></keys>
+                if (!keys.HasChildNodes) keys.IsEmpty = true;
+                if (!values.HasChildNodes) values.IsEmpty = true;
             }
 
             // As made: never aimed or fired (the values a fresh Verb saves)
@@ -341,7 +426,8 @@ namespace Multiplayer.Client.Desyncs
             {
                 var tm = Find.TickManager;
                 return tm == null ? "no tick manager" :
-                    $"worldTicks={Multiplayer.AsyncWorldTime?.worldTicks} ticksGameInt={tm.ticksGameInt} gameStartAbsTick={tm.gameStartAbsTick} " +
+                    $"worldTicks={Multiplayer.AsyncWorldTime?.worldTicks} worldGameStartAbsTick={Multiplayer.AsyncWorldTime?.gameStartAbsTick} " +
+                    $"ticksGameInt={tm.ticksGameInt} gameStartAbsTick={tm.gameStartAbsTick} " +
                     $"curTimeSpeed={tm.curTimeSpeed} mapTicks={string.Join(",", Find.Maps.Select(m => $"{m.uniqueID}:{m.AsyncTime()?.mapTicks}"))}";
             }
             catch (Exception e)
@@ -412,6 +498,18 @@ namespace Multiplayer.Client.Desyncs
 
             if (lanesBefore == null) return;
 
+            try
+            {
+                SelfCheck(lanesBefore, leavesBefore, selfCheckPath);
+            }
+            catch (Exception e)
+            {
+                MpLog.Error($"Join point self-check failed: {e}");
+            }
+        }
+
+        private static void SelfCheck(Dictionary<string, ulong> lanesBefore, Dictionary<string, string> leavesBefore, string selfCheckPath)
+        {
             var after = SyncLanes.ComputeAll();
             var changed = lanesBefore.Where(kv => after.TryGetValue(kv.Key, out var v) && v != kv.Value).Select(kv => kv.Key).ToList();
             if (changed.Count == 0)
@@ -423,7 +521,20 @@ namespace Multiplayer.Client.Desyncs
             var details = new List<string>();
             var full = new System.Text.StringBuilder();
             foreach (var key in changed.ToList())
-                if (leavesBefore != null && leavesBefore.TryGetValue(key, out var before))
+                if (key.StartsWith("world / ", StringComparison.Ordinal))
+                {
+                    // The world lanes' inputs, as numbers
+                    var valuesAfter = WorldValues();
+                    var lines = worldValuesBefore.Keys.Union(valuesAfter.Keys)
+                        .Where(k => k.StartsWith(key.Substring("world / ".Length) + ".", StringComparison.Ordinal))
+                        .Select(k => (k, b: worldValuesBefore.GetValueOrDefault(k, "(none)"), a: valuesAfter.GetValueOrDefault(k, "(none)")))
+                        .Select(v => $"{v.k}: {v.b} -> {v.a}{(v.b == v.a ? "" : "  CHANGED")}")
+                        .ToList();
+                    var text = lines.Count == 0 ? "(only this lane's checksum is kept before the save)" : string.Join("\n", lines);
+                    details.Add($"{key}: {string.Join(" | ", lines.Where(l => l.EndsWith("CHANGED")).Take(6))}");
+                    full.Append($"=== {key}\n{text}\n\n");
+                }
+                else if (leavesBefore != null && leavesBefore.TryGetValue(key, out var before))
                 {
                     var parts = key.Split(new[] { " / " }, StringSplitOptions.None);
                     var mapId = int.Parse(parts[0].Substring("map ".Length));
@@ -526,6 +637,36 @@ namespace Multiplayer.Client.Desyncs
         // Each map's tick when the join point saved it, which its reload runs PostMapInit at
         private static Dictionary<int, int> mapTicksBefore = new();
 
+        private static Dictionary<string, string> worldValuesBefore = new();
+
+        /// <summary>
+        /// What the world's time and ids lanes are made of, by "lane.name": the id counters (every int field of
+        /// the UniqueIDsManager) and the world's clock with the tick manager's.
+        /// </summary>
+        private static Dictionary<string, string> WorldValues()
+        {
+            var values = new Dictionary<string, string>();
+            if (Find.UniqueIDsManager is { } ids)
+                foreach (var field in AccessTools.GetDeclaredFields(typeof(UniqueIDsManager)).Where(f => !f.IsStatic && f.FieldType == typeof(int)))
+                    values[$"ids.{field.Name}"] = ((int)field.GetValue(ids)).ToString(CultureInfo.InvariantCulture);
+
+            var world = Multiplayer.AsyncWorldTime;
+            var tm = Find.TickManager;
+            if (world != null)
+            {
+                values["time.worldTicks"] = world.worldTicks.ToString(CultureInfo.InvariantCulture);
+                values["time.worldGameStartAbsTick"] = world.gameStartAbsTick.ToString(CultureInfo.InvariantCulture);
+                values["time.desiredTimeSpeed"] = world.DesiredTimeSpeed.ToString();
+                values["time.randState"] = world.randState.ToString("X16");
+            }
+            if (tm != null)
+            {
+                values["time.TicksGame"] = tm.TicksGame.ToString(CultureInfo.InvariantCulture);
+                values["time.gameStartAbsTick"] = tm.gameStartAbsTick.ToString(CultureInfo.InvariantCulture);
+            }
+            return values;
+        }
+
         /// <summary>The lanes and entity leaves before a join point's save, for <see cref="AfterJoinPoint"/>.</summary>
         public static (Dictionary<string, ulong> lanes, Dictionary<string, string> leaves) BeforeJoinPoint()
         {
@@ -535,6 +676,7 @@ namespace Multiplayer.Client.Desyncs
             {
                 var lanes = SyncLanes.ComputeAll();
                 mapTicksBefore = Find.Maps.ToDictionary(m => m.uniqueID, m => m.AsyncTime().mapTicks);
+                worldValuesBefore = WorldValues();
                 var leaves = new Dictionary<string, string>();
                 foreach (var map in Find.Maps)
                     foreach (var lane in new[] { "pawns", "things", "plants" })

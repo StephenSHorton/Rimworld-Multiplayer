@@ -45,10 +45,15 @@ namespace Multiplayer.Client.Patches
         }
     }
 
+    // TryGetMeleeVerb stores the verb it picks in curMeleeVerb, which the simulation keeps using. Outside the
+    // simulation it returns the first usable verb and stores nothing. Not Multiplayer.InInterface: that was false in
+    // the frame a join point's long event waited to be drawn, and the melee attack gizmo
+    // (PawnAttackGizmoUtility.GetMeleeAttackGizmo -> FloatMenuUtility.GetMeleeAttackAction) stored a verb on six of
+    // one game's drafted pawns (2026-10-21)
     [HarmonyPatch(typeof(Pawn_MeleeVerbs), nameof(Pawn_MeleeVerbs.TryGetMeleeVerb))]
     static class TryGetMeleeVerbPatch
     {
-        static bool Cancel => Multiplayer.Client != null && Multiplayer.InInterface;
+        static bool Cancel => Multiplayer.OutsideSimulation;
 
         static bool Prefix()
         {

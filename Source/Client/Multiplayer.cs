@@ -64,13 +64,27 @@ namespace Multiplayer.Client
 
         public static bool dontSync;
         public static bool ShouldSync => InInterface && !dontSync;
+
+        /// <summary>
+        /// The player's own interface: not ticking, running a command, reloading or running a long event. A long
+        /// event that is only waiting for its one drawn frame (see <see cref="Patches.NewLongEvent.pendingWithInterface"/>)
+        /// still counts as interface, since the interface is drawn and takes input then; a long event that runs, and
+        /// any without the standard window, doesn't.
+        /// </summary>
         public static bool InInterface =>
             Client != null
             && !Ticking
             && !ExecutingCmds
             && !reloading
             && Current.ProgramState == ProgramState.Playing
-            && LongEventHandler.currentEvent == null;
+            && (LongEventHandler.currentEvent == null || Patches.NewLongEvent.pendingWithInterface && !LongEventHandler.ShouldWaitForEvent);
+
+        /// <summary>
+        /// Outside the simulation: not ticking or running a command. Stricter than !InInterface for guards that keep
+        /// interface reads from filling simulation state: long events and loads that run on one game only (the
+        /// host's autosave, a joiner's first load) are outside the simulation too.
+        /// </summary>
+        public static bool OutsideSimulation => Client != null && !Ticking && !ExecutingCmds;
 
         public static string ReplaysDir => GenFilePaths.FolderUnderSaveData("MpReplays");
         public static string DesyncsDir => GenFilePaths.FolderUnderSaveData("MpDesyncs");

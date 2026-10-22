@@ -164,7 +164,10 @@ namespace Multiplayer.Client
             return new TempGameData(gameDoc, sessionData);
         }
 
-        public static XmlDocument SaveGameToDoc()
+        // With the world's clock in the tick manager: a load turns its section into the world's clock
+        public static XmlDocument SaveGameToDoc() => AsyncTime.AsyncWorldTimeComp.WithWorldClock(SaveGameToDocCore);
+
+        private static XmlDocument SaveGameToDocCore()
         {
             SaveCompression.PrepareReferences();
             SaveCompression.doSaveCompression = true;

@@ -66,11 +66,20 @@ public class AsyncWorldTimeComp : IExposable, ITickable
     public World world;
     public ulong randState;
 
+    /// <summary>
+    /// The world's clock: its tick count, its game start tick and its time slower, which the tick manager holds
+    /// whenever no map's context is open (a map's context switches the tick manager to the map's and back). They are
+    /// saved here, and every save writes them into the tick manager's section too (<see cref="WithWorldClock"/>).
+    /// </summary>
     public int worldTicks;
+    public int gameStartAbsTick;
+    public TimeSlower slower;
 
     public AsyncWorldTimeComp(World world)
     {
         this.world = world;
+        gameStartAbsTick = Find.TickManager?.gameStartAbsTick ?? 0;
+        slower = Find.TickManager?.slower ?? new TimeSlower();
 
         // Use the world's constant rand seed as our initial randState.
         // Only fill the seed part, leave the iterations out.
@@ -101,8 +110,23 @@ public class AsyncWorldTimeComp : IExposable, ITickable
 
         Multiplayer.game.worldComp.ExposeData();
 
+        // Saved since 2026-10-21; before, the world's clock was rebuilt from the tick manager's, which held a map's
+        // tick count whenever a map context hadn't put it back (the world clock went back at join points). A save
+        // from before keeps the date its tick manager saved, leaked or not: the world's own count was never saved
+        // anywhere, and every game loads the same value, so the games stay in step
+        Scribe_Values.Look(ref worldTicks, "worldTicks", -1, forceSave: true);
+        Scribe_Values.Look(ref gameStartAbsTick, "worldGameStartAbsTick", -1, forceSave: true);
+
         if (Scribe.mode == LoadSaveMode.LoadingVars)
-            worldTicks = Find.TickManager.TicksGame;
+        {
+            var tm = Find.TickManager;
+            if (worldTicks < 0) worldTicks = tm.TicksGame;
+            if (gameStartAbsTick < 0) gameStartAbsTick = tm.gameStartAbsTick;
+            // The tick manager loaded just before (Game.ExposeSmallComponents); its slower is new
+            slower = tm.slower;
+            tm.ticksGameInt = worldTicks;
+            tm.gameStartAbsTick = gameStartAbsTick;
+        }
     }
 
     public void Tick()
@@ -148,19 +172,59 @@ public class AsyncWorldTimeComp : IExposable, ITickable
 
     private static int clockMismatches;
 
-    public void PreContext()
+    /// <summary>
+    /// Puts the world's clock in the tick manager, logging what was there instead (rate limited). Between contexts
+    /// the tick manager should hold the world's clock, but a map context that didn't restore it (one opened inside
+    /// itself, 2026-10-21) left a map's, and a save stores the tick manager's.
+    /// </summary>
+    public void ApplyWorldClock(string where, bool speed = true)
     {
-        // The world's clock is worldTicks. Between contexts TickManager.ticksGameInt should hold it too, but a map
-        // context that didn't restore it (one opened inside itself, 2026-10-21) left a map's tick count there, and a
-        // save stores ticksGameInt, which a load turns back into worldTicks
-        if (Find.TickManager.ticksGameInt != worldTicks)
+        var tm = Find.TickManager;
+        if (tm.ticksGameInt != worldTicks || tm.gameStartAbsTick != gameStartAbsTick || tm.slower != slower)
         {
             if (clockMismatches++ % 100 == 0)
-                MpLog.Warn($"The game's tick count was {Find.TickManager.ticksGameInt} on entering the world's context at world tick {worldTicks}; set back to the world's ({clockMismatches} times so far)");
-            Find.TickManager.ticksGameInt = worldTicks;
+            {
+                // Name the map whose clock it is: that map's context is the one that didn't put the clock back
+                var owner = Find.Maps.FirstOrDefault(m => m.AsyncTime() is { } t && t.mapTicks == tm.ticksGameInt && t.slower == tm.slower) ??
+                            Find.Maps.FirstOrDefault(m => m.AsyncTime()?.mapTicks == tm.ticksGameInt);
+                MpLog.Warn($"The tick manager held ticks {tm.ticksGameInt}, game start {tm.gameStartAbsTick}" +
+                           $"{(tm.slower != slower ? ", another time slower" : "")} at {where}; the world's are {worldTicks}, {gameStartAbsTick}. " +
+                           $"{(owner != null ? $"Those are map {owner.uniqueID}'s ticks" : "No map has those ticks")}; set back to the world's " +
+                           $"({clockMismatches} times so far)");
+            }
         }
 
-        Find.TickManager.CurTimeSpeed = DesiredTimeSpeed;
+        tm.ticksGameInt = worldTicks;
+        tm.gameStartAbsTick = gameStartAbsTick;
+        tm.slower = slower;
+        if (speed) tm.CurTimeSpeed = DesiredTimeSpeed;
+    }
+
+    /// <summary>
+    /// Runs a save with the world's clock in the tick manager, whose section a load turns into the world's clock,
+    /// and puts back what was there. Saves run in long events outside every context (the join point, autosaves).
+    /// </summary>
+    public static T WithWorldClock<T>(Func<T> save)
+    {
+        var comp = Multiplayer.game?.asyncWorldTimeComp;
+        if (comp == null || Find.TickManager == null) return save();
+
+        var prev = TimeSnapshot.Current();
+        // Not the speed: a load takes the world's from its own timeSpeed, saved first under the same name
+        comp.ApplyWorldClock("a save", speed: false);
+        try
+        {
+            return save();
+        }
+        finally
+        {
+            prev.Set();
+        }
+    }
+
+    public void PreContext()
+    {
+        ApplyWorldClock("the world's context");
         Rand.PushState();
         Rand.StateCompressed = randState;
 

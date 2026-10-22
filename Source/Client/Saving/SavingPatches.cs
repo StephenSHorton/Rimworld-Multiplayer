@@ -86,7 +86,7 @@ namespace Multiplayer.Client.Saving
                 if (Multiplayer.game.asyncWorldTimeComp == null)
                 {
                     Log.Warning($"No {nameof(AsyncWorldTimeComp)} during loading/saving");
-                    Multiplayer.game.asyncWorldTimeComp = new AsyncWorldTimeComp(__instance);
+                    Multiplayer.game.asyncWorldTimeComp = new AsyncWorldTimeComp(__instance) { worldTicks = Find.TickManager.TicksGame };
                 }
             }
         }

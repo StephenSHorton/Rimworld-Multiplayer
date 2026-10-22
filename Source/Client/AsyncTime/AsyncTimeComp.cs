@@ -70,7 +70,8 @@ namespace Multiplayer.Client
             {
                 if (gameStartAbsTickMap == 0)
                 {
-                    gameStartAbsTickMap = Find.TickManager?.gameStartAbsTick ?? 0;
+                    // The world's, not the tick manager's: that one is another map's inside its context
+                    gameStartAbsTickMap = Multiplayer.game?.asyncWorldTimeComp?.gameStartAbsTick ?? Find.TickManager?.gameStartAbsTick ?? 0;
                 }
 
                 return gameStartAbsTickMap;
@@ -196,7 +197,18 @@ namespace Multiplayer.Client
             openContexts.Clear();
         }
 
-        public void PreContext() => openContexts.Open(this, SwitchIn);
+        private static int nestedLogged;
+
+        public void PreContext()
+        {
+            // A context opened inside another is where the world clock leaked from before contexts nested safely;
+            // log who opens one (rate limited) to find any other path that does
+            if (openContexts.Count > 0 && (nestedLogged++ < 20 || nestedLogged % 1000 == 0))
+                MpLog.Warn($"Map {map.uniqueID}'s context opened inside {openContexts.Count} open map contexts (innermost: map " +
+                           $"{openContexts.Current?.map?.uniqueID}{(IsCurrentContext ? ", the same" : "")}; {nestedLogged} times so far): " +
+                           Desyncs.IdLedger.Describe(new System.Diagnostics.StackTrace(1, false), 14));
+            openContexts.Open(this, SwitchIn);
+        }
 
         public void PostContext()
         {

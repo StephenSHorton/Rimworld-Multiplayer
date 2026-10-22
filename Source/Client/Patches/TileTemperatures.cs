@@ -22,7 +22,7 @@ namespace Multiplayer.Client
             __state = TimeSnapshot.GetAndSetFromMap(map);
         }
 
-        static void Postfix(TimeSnapshot? __state) => __state?.Set();
+        static void Finalizer(TimeSnapshot? __state) => __state?.Set();
     }
 
     [HarmonyPatch(typeof(TileTemperaturesComp), nameof(TileTemperaturesComp.RetrieveCachedData))]

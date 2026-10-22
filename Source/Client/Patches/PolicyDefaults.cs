@@ -11,13 +11,13 @@ namespace Multiplayer.Client.Patches
     /// the default policy the pawns left null followed the new default while the filled ones kept the old: the
     /// games then disagree on what those pawns wear, take, eat and read. Outside the simulation the getter still
     /// returns the default, but leaves the field null; reads while ticking or running a command store it as in
-    /// vanilla, at the same point on every game. "Outside the simulation" is NeedCaches' test, not
-    /// Multiplayer.InInterface: that one is also false in long events and loads that run on one game only (the
-    /// host's autosave, a joiner's first load), where a store would again be one game's.
+    /// vanilla, at the same point on every game. "Outside the simulation" is Multiplayer.OutsideSimulation (not
+    /// ticking, no command), not Multiplayer.InInterface: that one is also false in long events and loads that run on
+    /// one game only (the host's autosave, a joiner's first load), where a store would again be one game's.
     /// </summary>
     static class PolicyDefaultsInInterface
     {
-        public static bool KeepNull(bool wasNull) => wasNull && NeedCachesOutsideSimulation.InInterface;
+        public static bool KeepNull(bool wasNull) => wasNull && Multiplayer.OutsideSimulation;
     }
 
     [HarmonyPatch(typeof(Pawn_OutfitTracker), nameof(Pawn_OutfitTracker.CurrentApparelPolicy), MethodType.Getter)]

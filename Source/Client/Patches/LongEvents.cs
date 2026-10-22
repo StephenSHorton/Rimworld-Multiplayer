@@ -39,15 +39,30 @@ namespace Multiplayer.Client.Patches
     {
         public static bool currentEventWasMarked;
 
+        /// <summary>
+        /// Whether the current long event is a synchronous one with the standard window that hasn't run yet. Such
+        /// an event waits one drawn frame before it runs (ShouldWaitUntilDisplayed), and in that frame the whole
+        /// interface is drawn and takes input as in any other frame (Root.OnGUI only stops for ShouldWaitForEvent).
+        /// Multiplayer.InInterface used to be false for that frame because currentEvent was set, so every interface
+        /// guard was off: the join point's frame let the melee attack gizmo store a melee verb on one game's drafted
+        /// pawns (2026-10-21), and a click in it would have run unsynced. False while LongEventsUpdate runs: a
+        /// synchronous event runs to its end inside it, so one still current after it hasn't run.
+        /// </summary>
+        public static bool pendingWithInterface;
+
+        [HarmonyPriority(Priority.First)]
         static void Prefix(ref bool __state)
         {
+            pendingWithInterface = false;
             __state = LongEventHandler.currentEvent == null;
             currentEventWasMarked = MarkLongEvents.IsTickMarked(LongEventHandler.currentEvent?.eventAction);
         }
 
+        [HarmonyPriority(Priority.Last)]
         static void Postfix(bool __state)
         {
             currentEventWasMarked = false;
+            pendingWithInterface = LongEventHandler.currentEvent is { UseStandardWindow: true };
 
             if (Multiplayer.Client == null) return;
 

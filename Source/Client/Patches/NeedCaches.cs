@@ -14,7 +14,7 @@ namespace Multiplayer.Client.Patches
     /// </summary>
     static class NeedCachesOutsideSimulation
     {
-        public static bool InInterface => Multiplayer.Client != null && !Multiplayer.Ticking && !Multiplayer.ExecutingCmds;
+        public static bool InInterface => Multiplayer.OutsideSimulation;
     }
 
     [HarmonyPatch(typeof(Need_Beauty), nameof(Need_Beauty.CurInstantLevel), MethodType.Getter)]
