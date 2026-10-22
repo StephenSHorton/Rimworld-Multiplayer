@@ -35,11 +35,14 @@ namespace Multiplayer.Client
 
         private const int MaxBacklog = 30;
 
+        // A new game, reload or resync: the Rand attribution window built before it belongs to no opinion of this one
+        public SyncCoordinator() => RandAttribution.ResetWindow();
+
         public ClientSyncOpinion FinishLocalOpinion()
         {
             if (!ShouldCollect || currentOpinion == null) return null;
             currentOpinion.roundMode = RoundMode.GetCurrentRoundMode();
-            currentOpinion.randAttr = RandAttribution.TakeWindowHashes();
+            currentOpinion.randAttr = RandAttribution.TakeWindowHashes(currentOpinion.startTick);
             var opinion = currentOpinion;
             currentOpinion = null;
             recorder.Record(opinion);

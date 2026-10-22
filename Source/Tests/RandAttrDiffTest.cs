@@ -146,6 +146,31 @@ public class RandAttrDiffTest
     }
 
     [Test]
+    public void RefereeSummaryFitsThePacketInMultibyteNames()
+    {
+        var name = new string('\u042F', 700); // Cyrillic: 2 UTF-8 bytes each
+        var a = Table(Tick(8, 366909, 1), Line(8, 0, "Thing", "Human1234", "Human", "TickInterval", 3, name: name));
+        var b = Table(Tick(8, 366909, 1), Line(8, 0, "Thing", "Human1234", "Human", "TickInterval", 4, name: name));
+        var result = SyncReferee.BuildRandAttrDiff(1, 366901, 8,
+            new ClientRandAttrPacket { gzTable = LeafDiff.Gzip(a), gzStacks = LeafDiff.Gzip("") },
+            new ClientRandAttrPacket { gzTable = LeafDiff.Gzip(b), gzStacks = LeafDiff.Gzip("") }, "host", "Blake");
+
+        Assert.That(System.Text.Encoding.UTF8.GetByteCount(result.summary), Is.LessThanOrEqualTo(ServerRandAttrDiffPacket.MaxSummaryBytes));
+        Assert.That(result.summary, Does.EndWith("..."));
+        Assert.DoesNotThrow(() => result.Serialize());
+    }
+
+    [Test]
+    public void TruncateUtf8KeepsSurrogatePairsWhole()
+    {
+        Assert.That(SyncReferee.TruncateUtf8("short", 10), Is.EqualTo("short"));
+        var emoji = string.Concat(System.Linq.Enumerable.Repeat("\U0001F600", 10)); // 4 bytes each
+        var cut = SyncReferee.TruncateUtf8(emoji, 13);
+        Assert.That(cut, Is.EqualTo("\U0001F600\U0001F600..."));
+        Assert.That(System.Text.Encoding.UTF8.GetByteCount(cut), Is.LessThanOrEqualTo(13));
+    }
+
+    [Test]
     public void RefereeReportsAMissedAnswer()
     {
         var result = SyncReferee.BuildRandAttrDiff(1, 10, 2, new ClientRandAttrPacket { missed = true }, new ClientRandAttrPacket(), "host", "Blake");

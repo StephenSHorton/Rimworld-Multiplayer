@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Networking.Packet;
 
@@ -462,14 +464,43 @@ public class SyncReferee
         var other = server.GetPlayer(request.otherPlayer);
         var otherName = other?.Username ?? "player";
 
-        var result = BuildRandAttrDiff(request.scope, request.opinionStart, request.entryTo, refAnswer, otherAnswer, refName, otherName);
-        result.playerId = request.otherPlayer;
-        result.username = otherName;
+        // A diagnostic: whatever goes wrong building or sending it must not disconnect the player whose answer
+        // came second (this runs in its packet handler)
+        try
+        {
+            var result = BuildRandAttrDiff(request.scope, request.opinionStart, request.entryTo, refAnswer, otherAnswer, refName, otherName);
+            result.playerId = request.otherPlayer;
+            result.username = otherName;
 
-        ServerLog.Log($"Sync referee: [RandAttr] {refName} vs {otherName}: {result.summary}");
-        var bytes = result.Serialize();
-        foreach (var p in new[] { server.GetPlayer(request.refPlayer), other })
-            p?.conn.SendFragmented(bytes);
+            ServerLog.Log($"Sync referee: [RandAttr] {refName} vs {otherName}: {result.summary}");
+            var bytes = result.Serialize();
+            foreach (var p in new[] { server.GetPlayer(request.refPlayer), other })
+                p?.conn.SendFragmented(bytes);
+        }
+        catch (Exception e)
+        {
+            ServerLog.Error($"Sync referee: couldn't diff the Rand attribution of {refName} and {otherName} " +
+                            $"(window {request.opinionStart}, scope {request.scope}): {e}");
+        }
+    }
+
+    /// <summary>
+    /// Cuts a string so its UTF-8 form fits <paramref name="maxBytes"/> (packet strings are bound by bytes, and pawn
+    /// names can be Cyrillic or CJK), marking the cut with "...". Never splits a surrogate pair.
+    /// </summary>
+    public static string TruncateUtf8(string text, int maxBytes)
+    {
+        if (Encoding.UTF8.GetByteCount(text) <= maxBytes) return text;
+        int budget = maxBytes - 3, bytes = 0, i = 0;
+        while (i < text.Length)
+        {
+            int len = char.IsHighSurrogate(text[i]) && i + 1 < text.Length ? 2 : 1;
+            int b = Encoding.UTF8.GetByteCount(text.ToCharArray(i, len));
+            if (bytes + b > budget) break;
+            bytes += b;
+            i += len;
+        }
+        return text.Substring(0, i) + "...";
     }
 
     /// <summary>The diff of two games' answers, with the summary line and the watch to arm. Public for the tests.</summary>
@@ -488,6 +519,7 @@ public class SyncReferee
             var who = refAnswer.missed ? refName : otherName;
             result.summary = $"{RandAttrScope.Name(scope)} window {opinionStart}: could not compare Rand attribution, " +
                              $"{who}'s game no longer had that window (or has attribution off)";
+            result.summary = TruncateUtf8(result.summary, ServerRandAttrDiffPacket.MaxSummaryBytes);
             result.gzDiff = LeafDiff.Gzip(result.summary);
             return result;
         }
@@ -519,7 +551,7 @@ public class SyncReferee
             }
         }
 
-        if (summary.Length > 1000) summary = summary.Substring(0, 1000) + "...";
+        summary = TruncateUtf8(summary, ServerRandAttrDiffPacket.MaxSummaryBytes);
         result.summary = summary;
         result.gzDiff = LeafDiff.Gzip(diff.text);
         result.gzRefTable = refAnswer.gzTable;

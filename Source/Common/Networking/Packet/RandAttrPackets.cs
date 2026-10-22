@@ -59,6 +59,9 @@ public record struct ServerRandAttrDiffPacket : IPacket
     public int opinionStart;
     public short entry;
     public int ticksGame;
+    /// <summary>The summary is cut to this many UTF-8 bytes (bound at 1024).</summary>
+    public const int MaxSummaryBytes = 1000;
+
     public string summary;
     public byte[] gzDiff;
     public byte[] gzRefTable;

@@ -47,7 +47,7 @@ namespace Multiplayer.Client.Desyncs
         /// <summary>Called by SyncUtil.HandleCmd once the handler is known.</summary>
         public static void SyncHandler(int syncId, object handler)
         {
-            if (!RandAttribution.active) return;
+            if (!RandAttribution.Recording) return;
             if (!syncPhases.TryGetValue(syncId, out var id))
             {
                 var name = "sync:" + handler;
@@ -198,13 +198,13 @@ namespace Multiplayer.Client.Desyncs
 
         public static void SystemPrefix(MethodBase __originalMethod, out int __state)
         {
-            __state = RandAttribution.active && systemPhases.TryGetValue(__originalMethod, out var phase)
+            __state = RandAttribution.Recording && systemPhases.TryGetValue(__originalMethod, out var phase)
                 ? RandAttribution.PushPhase(phase, false)
                 : -1;
         }
 
         public static void MapComponentPrefix(MapComponent __instance, out int __state) =>
-            __state = RandAttribution.active ? RandAttribution.PushOwner(RandAttrKind.MapComp, 0, 0, RandAttribution.PhaseOf(__instance.GetType())) : -1;
+            __state = RandAttribution.Recording ? RandAttribution.PushOwner(RandAttrKind.MapComp, 0, 0, RandAttribution.PhaseOf(__instance.GetType())) : -1;
 
         public static void MapComponentPostfix(MapComponent __instance, int __state)
         {
@@ -213,22 +213,22 @@ namespace Multiplayer.Client.Desyncs
         }
 
         public static void WorldComponentPrefix(WorldComponent __instance, out int __state) =>
-            __state = RandAttribution.active ? RandAttribution.PushOwner(RandAttrKind.WorldComp, 0, 0, RandAttribution.PhaseOf(__instance.GetType())) : -1;
+            __state = RandAttribution.Recording ? RandAttribution.PushOwner(RandAttrKind.WorldComp, 0, 0, RandAttribution.PhaseOf(__instance.GetType())) : -1;
 
         public static void ConditionPrefix(GameCondition __instance, out int __state) =>
-            __state = RandAttribution.active ? RandAttribution.PushOwner(RandAttrKind.Condition, __instance.uniqueID, __instance.def?.shortHash ?? 0, 0) : -1;
+            __state = RandAttribution.Recording ? RandAttribution.PushOwner(RandAttrKind.Condition, __instance.uniqueID, __instance.def?.shortHash ?? 0, 0) : -1;
 
         public static void LordPrefix(Lord __instance, out int __state) =>
-            __state = RandAttribution.active
+            __state = RandAttribution.Recording
                 ? RandAttribution.PushOwner(RandAttrKind.Lord, __instance.loadID, 0,
                     __instance.CurLordToil != null ? RandAttribution.PhaseOf(__instance.CurLordToil.GetType()) : (ushort)0)
                 : -1;
 
         public static void QuestPrefix(Quest __instance, out int __state) =>
-            __state = RandAttribution.active ? RandAttribution.PushOwner(RandAttrKind.Quest, __instance.id, 0, 0) : -1;
+            __state = RandAttribution.Recording ? RandAttribution.PushOwner(RandAttrKind.Quest, __instance.id, 0, 0) : -1;
 
         public static void IncidentPrefix(IncidentWorker __instance, out int __state) =>
-            __state = RandAttribution.active ? RandAttribution.PushOwner(RandAttrKind.Incident, 0, __instance.def?.shortHash ?? 0, 0) : -1;
+            __state = RandAttribution.Recording ? RandAttribution.PushOwner(RandAttrKind.Incident, 0, __instance.def?.shortHash ?? 0, 0) : -1;
 
         // --- Tier 2 ---
 
@@ -268,7 +268,7 @@ namespace Multiplayer.Client.Desyncs
             public static readonly ushort Equipment = RandAttribution.RegisterPhase("Pawn_EquipmentTracker.EquipmentTrackerTick");
         }
 
-        private static int T2Push(ushort phase) => RandAttribution.tier2 && RandAttribution.active ? RandAttribution.PushPhase(phase, true) : -1;
+        private static int T2Push(ushort phase) => RandAttribution.tier2 && RandAttribution.Recording ? RandAttribution.PushPhase(phase, true) : -1;
 
         public static void PatherPrefix(out int __state) => __state = T2Push(T2.Pather);
         public static void VerbsPrefix(out int __state) => __state = T2Push(T2.Verbs);
@@ -285,9 +285,9 @@ namespace Multiplayer.Client.Desyncs
         public static void EquipmentPrefix(out int __state) => __state = T2Push(T2.Equipment);
 
         public static void DriverPrefix(JobDriver __instance, out int __state) =>
-            __state = RandAttribution.tier2 && RandAttribution.active ? RandAttribution.PushPhase(RandAttribution.PhaseOf(__instance.GetType()), true) : -1;
+            __state = RandAttribution.tier2 && RandAttribution.Recording ? RandAttribution.PushPhase(RandAttribution.PhaseOf(__instance.GetType()), true) : -1;
 
         public static void CompPrefix(ThingComp __instance, out int __state) =>
-            __state = RandAttribution.tier2 && RandAttribution.active ? RandAttribution.PushPhase(RandAttribution.PhaseOf(__instance.GetType(), "comp:"), true) : -1;
+            __state = RandAttribution.tier2 && RandAttribution.Recording ? RandAttribution.PushPhase(RandAttribution.PhaseOf(__instance.GetType(), "comp:"), true) : -1;
     }
 }

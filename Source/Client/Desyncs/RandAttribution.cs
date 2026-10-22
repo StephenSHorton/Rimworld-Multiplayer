@@ -118,7 +118,9 @@ namespace Multiplayer.Client.Desyncs
         // This window's hash of the scope being recorded, and every scope's
         private static ulong curHash;
         private static int curUnits;
-        private static readonly Dictionary<int, (ulong hash, int records)> windowHashes = new();
+        // Keyed by scope; each entry remembers the window it belongs to, so records left from before a reload or
+        // resync never start the next window's hash
+        private static readonly Dictionary<int, (int opinionStart, ulong hash, int records)> windowHashes = new();
 
         // --- Phase registry ---
 
@@ -184,6 +186,27 @@ namespace Multiplayer.Client.Desyncs
             RandWatch.Load();
         }
 
+        /// <summary>
+        /// A scope is being recorded and this is the main thread. Every frame mutator checks it: a worker thread
+        /// reaching a patched method (a map preview, a mod's thread) must not touch the shared stack and ring.
+        /// </summary>
+        public static bool Recording => active && Environment.CurrentManagedThreadId == mainThreadId;
+
+        /// <summary>
+        /// Forgets the window being built (a new game, a reload or a resync starts a new SyncCoordinator): its
+        /// per-scope hashes would otherwise start the first window after the load and differ from the host's.
+        /// </summary>
+        public static void ResetWindow()
+        {
+            if (mainThreadId != -1 && Environment.CurrentManagedThreadId != mainThreadId) return;
+            windowHashes.Clear();
+            active = false;
+            depth = 0;
+            unitOpen = false;
+            curHash = 0;
+            curUnits = 0;
+        }
+
         private static bool ShouldRecord =>
             !disabled && Multiplayer.Client != null && Multiplayer.game != null && Multiplayer.game.sync.ShouldCollect &&
             Environment.CurrentManagedThreadId == mainThreadId;
@@ -235,9 +258,16 @@ namespace Multiplayer.Client.Desyncs
             unitOpen = false;
             boundariesThisTick = 0;
 
-            windowHashes.TryGetValue(scope, out var acc);
-            curHash = acc.hash == 0 && acc.records == 0 ? 14695981039346656037UL : acc.hash;
-            curUnits = acc.records;
+            if (windowHashes.TryGetValue(scope, out var acc) && acc.opinionStart == opinionStart)
+            {
+                curHash = acc.hash;
+                curUnits = acc.records;
+            }
+            else
+            {
+                curHash = 14695981039346656037UL;
+                curUnits = 0;
+            }
 
             depth = 1;
             stack[0] = new Frame { kind = RandAttrKind.Root, basePhase = rootPhase, toil = -1 };
@@ -257,7 +287,7 @@ namespace Multiplayer.Client.Desyncs
         /// <summary>Ends the scope begun last; returns the Rand state at its end (the scope's next lastEnd).</summary>
         public static ulong End()
         {
-            if (!active) return Rand.StateCompressed;
+            if (!active || Environment.CurrentManagedThreadId != mainThreadId) return Rand.StateCompressed;
             long t0 = timing ? Stopwatch.GetTimestamp() : 0;
 
             Sample();
@@ -268,7 +298,7 @@ namespace Multiplayer.Client.Desyncs
             h.stateAfter = Rand.stateStack.Count == baseDepth ? Rand.StateCompressed : last;
             h.count = recordsThisTick;
             h.complete = true;
-            windowHashes[h.scope] = (curHash, curUnits);
+            windowHashes[h.scope] = (h.opinionStart, curHash, curUnits);
 
             ticksRecorded++;
             recordsTotal += recordsThisTick;
@@ -414,7 +444,7 @@ namespace Multiplayer.Client.Desyncs
 
         public static int PushThing(Thing thing, RandAttrMethod method)
         {
-            if (!active) return -1;
+            if (!active || Environment.CurrentManagedThreadId != mainThreadId) return -1;
             long t0 = timing ? Stopwatch.GetTimestamp() : 0;
             Sample();
             int d = depth;
@@ -443,7 +473,7 @@ namespace Multiplayer.Client.Desyncs
 
         public static int PushOwner(RandAttrKind kind, int owner, ushort def, ushort basePhase, RandAttrMethod method = RandAttrMethod.None)
         {
-            if (!active) return -1;
+            if (!active || Environment.CurrentManagedThreadId != mainThreadId) return -1;
             long t0 = timing ? Stopwatch.GetTimestamp() : 0;
             Sample();
             int d = depth;
@@ -459,7 +489,7 @@ namespace Multiplayer.Client.Desyncs
         /// <summary>A phase inside the current owner: a map system (tier 1) or a tracker, driver or comp (tier 2).</summary>
         public static int PushPhase(ushort phase, bool isTier2)
         {
-            if (!active || (isTier2 && !tier2)) return -1;
+            if (!active || (isTier2 && !tier2) || Environment.CurrentManagedThreadId != mainThreadId) return -1;
             long t0 = timing ? Stopwatch.GetTimestamp() : 0;
             Sample();
             int d = depth;
@@ -480,7 +510,7 @@ namespace Multiplayer.Client.Desyncs
 
         public static void PopTo(int d)
         {
-            if (d < 1 || !active) return;
+            if (d < 1 || !active || Environment.CurrentManagedThreadId != mainThreadId) return;
             long t0 = timing ? Stopwatch.GetTimestamp() : 0;
             Sample();
             if (d < depth) depth = d;
@@ -490,7 +520,7 @@ namespace Multiplayer.Client.Desyncs
         /// <summary>Moves the scope's root to the next step of the tick.</summary>
         public static void Phase(ushort phase)
         {
-            if (!active) return;
+            if (!active || Environment.CurrentManagedThreadId != mainThreadId) return;
             Sample();
             stack[0].basePhase = phase;
             if (depth > 1)
@@ -505,7 +535,7 @@ namespace Multiplayer.Client.Desyncs
         /// <summary>Names the command's handler once it is known (sync handlers).</summary>
         public static void CommandPhase(ushort phase)
         {
-            if (!active || headers[curHeader].scope != RandAttrScope.Commands) return;
+            if (!active || Environment.CurrentManagedThreadId != mainThreadId || headers[curHeader].scope != RandAttrScope.Commands) return;
             Sample();
             stack[0].basePhase = phase;
         }
@@ -519,8 +549,13 @@ namespace Multiplayer.Client.Desyncs
             if (Interlocked.Increment(ref offThreadLogged) <= 5 || n % 10000 == 0)
             {
                 var scope = curHeader >= 0 ? RandAttrScope.Name(headers[curHeader].scope) : "?";
-                pendingLogs.Enqueue((true, $"Rand called off the main thread during {scope}'s tick ({n} times so far): " +
-                                    IdLedger.Describe(new StackTrace(2, false), 16)));
+                var thread = Thread.CurrentThread;
+                var threadName = thread.Name.NullOrEmpty()
+                    ? (thread.IsThreadPoolThread ? "a pool thread" : "an unnamed thread")
+                    : "thread \"" + thread.Name + "\"";
+                pendingLogs.Enqueue((true, $"Rand called off the main thread during {scope}'s tick ({n} times so far) on {threadName} " +
+                                    $"(managed id {Environment.CurrentManagedThreadId}); a desync unless that thread keeps its own Rand " +
+                                    "state (a map preview worker does): " + IdLedger.Describe(new StackTrace(2, false), 16)));
             }
         }
 
@@ -537,6 +572,7 @@ namespace Multiplayer.Client.Desyncs
                 if (msg.error) MpLog.Error(msg.text);
                 else MpLog.Warn(msg.text);
             }
+            RandWatch.SaveIfDirty();
             RandInjectPatch.Poll();
         }
 
@@ -563,11 +599,15 @@ namespace Multiplayer.Client.Desyncs
             return sb.ToString();
         }
 
-        /// <summary>This window's hash per scope, for the opinion being finished; starts the next window.</summary>
-        public static List<RandAttrHash> TakeWindowHashes()
+        /// <summary>
+        /// This window's hash per scope, for the opinion starting at <paramref name="opinionStart"/> being finished;
+        /// starts the next window. Hashes of any other window (left from before a reload) are dropped.
+        /// </summary>
+        public static List<RandAttrHash> TakeWindowHashes(int opinionStart)
         {
             if (windowHashes.Count == 0) return [];
-            var list = windowHashes.OrderBy(kv => kv.Key).Select(kv => new RandAttrHash { scope = kv.Key, hash = kv.Value.hash, records = kv.Value.records }).ToList();
+            var list = windowHashes.Where(kv => kv.Value.opinionStart == opinionStart).OrderBy(kv => kv.Key)
+                .Select(kv => new RandAttrHash { scope = kv.Key, hash = kv.Value.hash, records = kv.Value.records }).ToList();
             windowHashes.Clear();
             return list;
         }
@@ -582,7 +622,7 @@ namespace Multiplayer.Client.Desyncs
         }
 
         private const int CaptureCapacity = 4096;
-        private const int MaxCapturesPerTick = 256;
+        private const int MaxCapturesPerTick = 32;
         private static readonly CaptureEntry[] captures = new CaptureEntry[CaptureCapacity];
         private static long captureSeq;
         private static long captureTickHeader = -1;
@@ -594,7 +634,7 @@ namespace Multiplayer.Client.Desyncs
         {
             if (!active || Environment.CurrentManagedThreadId != mainThreadId || Rand.stateStack.Count != baseDepth) return;
             ref var f = ref stack[depth - 1];
-            if (!RandWatch.Matches(f.kind, f.def, f.method, f.basePhase, f.phase, f.job)) return;
+            if (!RandWatch.Matches(headers[curHeader].scope, f.kind, f.def, f.method, f.basePhase, f.phase, f.job)) return;
 
             if (captureTickHeader != headerSeq)
             {
@@ -643,7 +683,7 @@ namespace Multiplayer.Client.Desyncs
                 scope = h.scope, opinionStart = h.opinionStart, entry = h.entry, unit = unit, call = call,
                 iteration = (uint)(s >> 32) - 1, frames = frames.ToArray()
             };
-            RandWatch.captures++;
+            RandWatch.NoteCapture();
         }
 
         private static IEnumerable<CaptureEntry> Captures(int scope, int opinionStart, int entryFrom, int entryTo)
@@ -749,6 +789,9 @@ namespace Multiplayer.Client.Desyncs
 
         public static void Answer(ServerRandAttrRequestPacket request)
         {
+            // Rejoining or loading: the server's side of the connection doesn't take answers then
+            if (Multiplayer.Client is not { State: ConnectionStateEnum.ClientPlaying }) return;
+
             string table = "", stacks = "";
             bool ok = false;
             try

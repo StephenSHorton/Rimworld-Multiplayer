@@ -16,11 +16,13 @@ namespace Multiplayer.Client.Desyncs
     /// tier 2 phase (or any) and job. The owner is kept for the report but not required, since the next occurrence
     /// may be another pawn of the same def. Written by names to MpDesyncs/rand-watch.txt on every game and loaded
     /// at startup, so it outlives a resync, a process restart and new sessions. Cleared after 3 diffs that came with
-    /// stacks, when it expires, or by the debug action.
+    /// stacks, when it expires, or by the debug action. A watch takes at most <see cref="MaxTotalCaptures"/> stacks
+    /// (the count is saved with it, so a restart doesn't reset it); a new diff arms a new watch with a new budget.
     /// </summary>
     public static class RandWatch
     {
         public const int ClearAfterDiffsWithStacks = 3;
+        public const int MaxTotalCaptures = 4096;
         public static readonly TimeSpan Lifetime = TimeSpan.FromHours(2);
 
         private static Dictionary<string, string> fields;
@@ -31,6 +33,9 @@ namespace Multiplayer.Client.Desyncs
         private static bool anyPhase;
         private static DateTime expiresUtc;
         private static int diffsWithStacks;
+        private static int scope;
+        private static bool anyScope;
+        private static bool dirty;
         public static int captures;
 
         private static string FilePath => Path.Combine(Multiplayer.DesyncsDir, "rand-watch.txt");
@@ -66,9 +71,12 @@ namespace Multiplayer.Client.Desyncs
             }
 
             diffsWithStacks = f.TryGetValue("diffsWithStacks", out var d) && int.TryParse(d, out var n) ? n : 0;
+            captures = f.TryGetValue("captures", out var c) && int.TryParse(c, out var cn) ? cn : 0;
             fields = f;
             resolved = false;
-            RandAttribution.watchArmed = true;
+            dirty = false;
+            // A watch whose budget is spent stays on file (its diff count still clears it) but captures nothing
+            RandAttribution.watchArmed = captures < MaxTotalCaptures;
             if (f.TryGetValue("tier2", out var t2) && t2 == "1")
                 RandAttribution.tier2 = true;
             if (save) Save();
@@ -98,6 +106,7 @@ namespace Multiplayer.Client.Desyncs
                 ["scope"] = diff.scope.ToString(),
                 ["tier2"] = "1",
                 ["diffsWithStacks"] = diffsWithStacks.ToString(),
+                ["captures"] = "0",
                 ["expires"] = (DateTime.UtcNow + Lifetime).ToString("o", CultureInfo.InvariantCulture)
             }, save: true);
         }
@@ -108,6 +117,7 @@ namespace Multiplayer.Client.Desyncs
             {
                 Directory.CreateDirectory(Multiplayer.DesyncsDir);
                 fields["diffsWithStacks"] = diffsWithStacks.ToString();
+                fields["captures"] = captures.ToString();
                 File.WriteAllLines(FilePath, fields.Select(kv => $"{kv.Key}={kv.Value}"));
             }
             catch (IOException e)
@@ -116,9 +126,32 @@ namespace Multiplayer.Client.Desyncs
             }
         }
 
+        /// <summary>One stack taken (from the simulation): counts it against the budget; the file is written later.</summary>
+        public static void NoteCapture()
+        {
+            captures++;
+            if (captures >= MaxTotalCaptures)
+            {
+                RandAttribution.watchArmed = false;
+                RandAttribution.Note($"Rand attribution: the watch took its {MaxTotalCaptures} stacks; no more until a new diff arms one");
+                dirty = true;
+            }
+            else if ((captures & 255) == 0)
+                dirty = true;
+        }
+
+        /// <summary>Every frame, outside the simulation: saves the capture count when it changed enough.</summary>
+        public static void SaveIfDirty()
+        {
+            if (!dirty) return;
+            dirty = false;
+            if (fields != null) Save();
+        }
+
         public static void Clear(string why)
         {
             fields = null;
+            dirty = false;
             resolved = false;
             RandAttribution.watchArmed = false;
             try
@@ -150,10 +183,11 @@ namespace Multiplayer.Client.Desyncs
             job = RandAttribution.DefHash<JobDef>(Field("job"));
             basePhase = Field("base").Length > 0 ? RandAttribution.RegisterPhase(Field("base")) : (ushort)0;
             anyPhase = Field("phase").Length == 0;
+            anyScope = !int.TryParse(Field("scope"), out scope);
             phase = anyPhase ? (ushort)0 : RandAttribution.RegisterPhase(Field("phase"));
         }
 
-        public static bool Matches(RandAttrKind k, ushort d, RandAttrMethod m, ushort b, ushort p, ushort j)
+        public static bool Matches(int s, RandAttrKind k, ushort d, RandAttrMethod m, ushort b, ushort p, ushort j)
         {
             if (!resolved)
             {
@@ -161,7 +195,7 @@ namespace Multiplayer.Client.Desyncs
                 Resolve();
             }
             if (fields == null) return false;
-            if (k != kind || d != def || m != method || b != basePhase || j != job || (!anyPhase && p != phase)) return false;
+            if (k != kind || d != def || m != method || b != basePhase || j != job || (!anyPhase && p != phase) || (!anyScope && s != scope)) return false;
             if (DateTime.UtcNow > expiresUtc)
             {
                 Clear("it expired");
@@ -174,6 +208,6 @@ namespace Multiplayer.Client.Desyncs
         public static string Describe() => fields == null
             ? "none"
             : $"{Field("kind")} {Field("owner")} def={Field("def")} m={Field("method")} base={Field("base")} phase={(Field("phase").Length > 0 ? Field("phase") : "any")} " +
-              $"job={Field("job")}, {captures} captures this process, expires {expiresUtc:u}";
+              $"job={Field("job")} scope={Field("scope")}, {captures} of {MaxTotalCaptures} captures taken, expires {expiresUtc:u}";
     }
 }

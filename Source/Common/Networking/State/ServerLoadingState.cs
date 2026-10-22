@@ -25,6 +25,14 @@ public class ServerLoadingState : AsyncConnectionState
         ServerLog.Log($"Dropped a {packet.type} command from {Player.Username}, who is rejoining");
     }
 
+    // A Rand attribution answer sent just before the client asked to rejoin; the request it answers was dropped
+    // when the player reset, so it is dropped too
+    [TypedPacketHandler]
+    public void HandleRandAttr(ClientRandAttrPacket packet)
+    {
+        ServerLog.Log($"Dropped a Rand attribution answer (request {packet.requestId}) from {Player.Username}, who is rejoining");
+    }
+
     [TypedPacketHandler]
     public void HandleClientKeepAlive(ClientKeepAlivePacket packet)
     {
