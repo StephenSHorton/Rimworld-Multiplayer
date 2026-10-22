@@ -106,14 +106,16 @@ namespace Multiplayer.Client
 
             pawn.Map.PushFaction(pawn.Faction);
             ThingContext.Push(pawn);
+            __state.pushed = true;
             __state.map = pawn.Map;
             __state.attr = RandAttribution.PushThing(pawn, RandAttrMethod.CheckForJobOverride);
         }
 
         static void Finalizer(ThingMethodPatches.State __state)
         {
-            if (__state.map is { } map)
+            if (__state.pushed)
             {
+                var map = __state.map;
                 RandAttribution.PopTo(__state.attr);
                 map.PopFaction();
                 ThingContext.Pop();
@@ -129,6 +131,9 @@ namespace Multiplayer.Client
     {
         public struct State
         {
+            // The prefix pushed: map is null for a thing ticking unspawned in a container (a casket's pawn, a
+            // transporter's items, ThingOwner.DoTick), which pushed the same as a spawned one
+            public bool pushed;
             public Map map;
             public int attr;
         }
@@ -137,6 +142,7 @@ namespace Multiplayer.Client
         {
             if (Multiplayer.Client == null) return;
 
+            state.pushed = true;
             state.map = map;
             ThingContext.Push(thing);
             state.attr = RandAttribution.PushThing(thing, method);
@@ -184,7 +190,10 @@ namespace Multiplayer.Client
         [HarmonyPriority(MpPriority.MpLast)]
         public static void Finalizer(Thing __instance, State __state)
         {
-            if (__state.map is not { } map) return;
+            // Not "map is null": a contained thing pushed with no map, and skipping its pops left its ThingContext,
+            // its FactionContext and its Rand attribution frame open (about 2 frames a tick on a played save)
+            if (!__state.pushed) return;
+            var map = __state.map;
 
             RandAttribution.PopTo(__state.attr);
 

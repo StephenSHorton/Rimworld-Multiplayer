@@ -41,14 +41,23 @@ namespace Multiplayer.Client.Desyncs
                 RandAttribution.OffThread();
             if (RandAttribution.watchArmed)
                 RandAttribution.OnWatchedCall();
-            TraceCore(0);
+            TraceCore(0, TraceKind.Rand);
+        }
+
+        /// <summary>The kinds of desync trace; a report names a first difference that isn't a Rand call.</summary>
+        public static class TraceKind
+        {
+            public const string Rand = "Rand";
+            public const string UniqueIds = "UniqueIds";
+            public const string Spawn = "Spawn";
+            public const string DeSpawn = "DeSpawn";
         }
 
         /// <summary>Records a desync trace (Rand calls, ids, spawns) when desync tracing is on.</summary>
-        public static void Trace() => TraceCore(0);
+        public static void Trace(string kind = null) => TraceCore(0, kind);
 
         // Both callers (RandPostfix, Trace) sit one frame above this; extraFrames is for any deeper caller
-        private static void TraceCore(int extraFrames)
+        private static void TraceCore(int extraFrames, string kind)
         {
             if (Native.LmfPtr == 0)
             {
@@ -58,9 +67,9 @@ namespace Multiplayer.Client.Desyncs
                 if (!Native.IsMono && ShouldAddStackTraceForDesyncLog())
                 {
                     if (Multiplayer.settings.desyncTracingMode == DesyncTracingMode.Slow)
-                        ManagedTrace(extraFrames);
+                        ManagedTrace(extraFrames, kind);
                     else
-                        ContextTrace();
+                        ContextTrace(kind);
                 }
                 return;
             }
@@ -73,19 +82,19 @@ namespace Multiplayer.Client.Desyncs
             // Skip this (DeferredStackTracing.Postfix) frame. Keeping it in the trace doesn't provide any value.
             int depth = DeferredStackTracingImpl.TraceImpl(trace, ref hash, skipFrames: 2 + extraFrames);
 
-            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash);
+            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash, kind: kind);
 
             acc++;
         }
 
-        private static void ContextTrace()
+        private static void ContextTrace(string kind)
         {
-            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(StackTraceLogItemRaw.GetFromPool(), 0, 0, hashStack: false);
+            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(StackTraceLogItemRaw.GetFromPool(), 0, 0, hashStack: false, kind: kind);
         }
 
         private static Dictionary<MethodBase, int> managedNameHashes = new();
 
-        private static void ManagedTrace(int extraFrames)
+        private static void ManagedTrace(int extraFrames, string kind)
         {
             var logItem = StackTraceLogItemManaged.GetFromPool();
             // Skip this frame and Postfix, like the Mono walk skips Postfix
@@ -112,7 +121,7 @@ namespace Multiplayer.Client.Desyncs
 
             // CoreCLR's tiered JIT inlines differently in each process, so the same call can show different
             // frames on the host and a client. Hashing the stack would report those as desyncs.
-            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash, hashStack: false);
+            Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash, hashStack: false, kind: kind);
         }
 
         public static bool ShouldAddStackTraceForDesyncLog()
@@ -138,7 +147,7 @@ namespace Multiplayer.Client.Desyncs
     {
         static void Postfix()
         {
-            DeferredStackTracing.Trace();
+            DeferredStackTracing.Trace(DeferredStackTracing.TraceKind.UniqueIds);
         }
     }
 
@@ -148,7 +157,7 @@ namespace Multiplayer.Client.Desyncs
         static void Postfix(Thing __instance)
         {
             if (__instance.def.HasThingIDNumber)
-                DeferredStackTracing.Trace();
+                DeferredStackTracing.Trace(DeferredStackTracing.TraceKind.Spawn);
         }
     }
 
@@ -158,7 +167,7 @@ namespace Multiplayer.Client.Desyncs
         static void Postfix(Thing __instance)
         {
             if (__instance.def.HasThingIDNumber)
-                DeferredStackTracing.Trace();
+                DeferredStackTracing.Trace(DeferredStackTracing.TraceKind.DeSpawn);
         }
     }
 

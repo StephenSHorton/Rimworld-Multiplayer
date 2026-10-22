@@ -270,7 +270,7 @@ namespace Multiplayer.Client
             OpinionInBuilding.desyncStackTraceHashes.Add(hash);
         }
 
-        public void TryAddStackTraceForDesyncLogRaw(StackTraceLogItemRaw item, int depth, int hashIn, string moreInfo = null, bool hashStack = true)
+        public void TryAddStackTraceForDesyncLogRaw(StackTraceLogItemRaw item, int depth, int hashIn, string moreInfo = null, bool hashStack = true, string kind = null)
         {
             if (!ShouldCollect) return;
 
@@ -282,6 +282,7 @@ namespace Multiplayer.Client
             item.tick = TickPatch.Timer;
             item.factionName = Faction.OfPlayer?.Name ?? string.Empty;
             item.moreInfo = moreInfo;
+            item.kind = kind;
 
             var thing = ThingContext.Current;
             if (thing != null)

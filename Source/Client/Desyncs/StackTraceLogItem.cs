@@ -49,8 +49,10 @@ namespace Multiplayer.Client
         public int thingId;
         public string factionName;
         public string moreInfo;
+        // What made the trace: Rand, UniqueIds, Spawn or DeSpawn (see DeferredStackTracing); shown first as [kind]
+        public string kind;
 
-        public override string AdditionalInfo => $"{ticksGame} {thingDef}{thingId} {factionName} {depth} {rngState} {moreInfo}";
+        public override string AdditionalInfo => $"{(kind == null ? "" : $"[{kind}] ")}{ticksGame} {thingDef}{thingId} {factionName} {depth} {rngState} {moreInfo}";
 
         private static Dictionary<long, string> methodNameCache = new();
 
@@ -93,6 +95,7 @@ namespace Multiplayer.Client
             thingDef = null;
             factionName = null;
             moreInfo = null;
+            kind = null;
         }
     }
 

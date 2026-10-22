@@ -90,6 +90,7 @@ namespace Multiplayer.Client.Desyncs
             }
 
             Environment.SetEnvironmentVariable(EscalationVariable, (history.Count + Math.Max(0, inheritedEscalation)).ToString());
+            Environment.SetEnvironmentVariable(RandAttrReports.SummaryVariable, RandAttrReports.KeptSummary ?? "");
             AutoJoinHandler.SetForChildProcess(connector);
             GenCommandLine.Restart();
         }
@@ -103,6 +104,9 @@ namespace Multiplayer.Client.Desyncs
     {
         // The host's traces and the referee's Rand attribution diff
         private const float MaxWaitForHost = 8f;
+        // How long the Rand attribution summary stays readable once it arrived (the overlay used to close in the
+        // frame it came)
+        private const float RandSummaryDwell = 6f;
 
         private readonly string message;
         private readonly SaveableDesyncInfo info;
@@ -110,8 +114,9 @@ namespace Multiplayer.Client.Desyncs
         private readonly float openedAt;
         [CanBeNull] private SaveableDesyncInfo.HostInfo hostInfo;
         private bool done;
+        private float randSeenAt = -1f;
 
-        public override Vector2 InitialSize => new(560, 110);
+        public override Vector2 InitialSize => new(620, 130);
 
         public DesyncOverlayWindow(string message, SaveableDesyncInfo info, DesyncRecovery.Step step)
         {
@@ -143,13 +148,14 @@ namespace Multiplayer.Client.Desyncs
             var what = step == DesyncRecovery.Step.RestartProcess
                 ? "Out of sync again. Restarting RimWorld and rejoining"
                 : "Out of sync with the host. Re-syncing";
-            var third = inRect.height / 3f;
-            Widgets.Label(new Rect(inRect.x, inRect.y, inRect.width, third), what + MpUI.FixedEllipsis());
+            var line = inRect.height / 4f;
+            Widgets.Label(new Rect(inRect.x, inRect.y, inRect.width, line), what + MpUI.FixedEllipsis());
             Text.Font = GameFont.Tiny;
-            Widgets.Label(new Rect(inRect.x, inRect.y + third, inRect.width, third), message.Length > 110 ? message.Substring(0, 110) + "..." : message);
+            Widgets.Label(new Rect(inRect.x, inRect.y + line, inRect.width, line), message.Length > 120 ? message.Substring(0, 120) + "..." : message);
             var rand = RandAttrReports.ForWindow(info.local.startTick)?.packet.summary;
-            Widgets.Label(new Rect(inRect.x, inRect.y + 2 * third, inRect.width, third),
-                rand == null ? "Waiting for the Rand attribution diff" + MpUI.FixedEllipsis() : rand.Length > 140 ? rand.Substring(0, 140) + "..." : rand);
+            Text.WordWrap = true;
+            Widgets.Label(new Rect(inRect.x, inRect.y + 2 * line, inRect.width, 2 * line),
+                rand == null ? "Waiting for the Rand attribution diff" + MpUI.FixedEllipsis() : rand.Length > 280 ? rand.Substring(0, 280) + "..." : rand);
             Text.Font = GameFont.Small;
             Text.Anchor = TextAnchor.UpperLeft;
         }
@@ -160,10 +166,14 @@ namespace Multiplayer.Client.Desyncs
 
             var waited = Time.realtimeSinceStartup - openedAt;
             bool haveRand = RandAttrReports.ForWindow(info.local.startTick) != null;
+            if (haveRand && randSeenAt < 0) randSeenAt = Time.realtimeSinceStartup;
             if (((hostInfo == null || !haveRand) && waited < MaxWaitForHost) || !info.ReadyToSave) return;
+            if (haveRand && Time.realtimeSinceStartup - randSeenAt < RandSummaryDwell) return;
 
             done = true;
             info.Save(hostInfo);
+            // The reload drops the message posted with the diff: post the summary again once playing
+            RandAttrReports.KeepForAfterResync(info.local.startTick);
 
             if (step == DesyncRecovery.Step.RestartProcess)
                 DesyncRecovery.RestartProcess();

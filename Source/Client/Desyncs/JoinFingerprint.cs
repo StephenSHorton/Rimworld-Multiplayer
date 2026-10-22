@@ -550,9 +550,22 @@ namespace Multiplayer.Client.Desyncs
         {
             var after = SyncLanes.ComputeAll();
             var changed = lanesBefore.Where(kv => after.TryGetValue(kv.Key, out var v) && v != kv.Value).Select(kv => kv.Key).ToList();
+
+            // Jobs vanilla dropped while reloading: expected changes, but still a job the live game had and lost
+            var droppedJobs = ReloadDroppedJobs.Report();
+            ReloadDroppedJobs.Disarm();
+            var droppedSection = droppedJobs.Count == 0 ? "" :
+                $"=== WARN: jobs vanilla dropped on reload ({droppedJobs.Count}; Pawn_PathFollower.PatherFailed during Map.FinalizeLoading: " +
+                "the pawn's path couldn't resume, it ended its job, started another and dropped what it carried; their job, path and " +
+                "carry changes and the dropped things are left out of the lanes' diffs below)\n" + string.Join("\n", droppedJobs) + "\n\n";
+            if (droppedJobs.Count > 0)
+                MpLog.Warn($"Join point reload: vanilla dropped the jobs of {droppedJobs.Count} pawns whose paths couldn't resume " +
+                           $"({string.Join(", ", droppedJobs.Take(4))}{(droppedJobs.Count > 4 ? ", ..." : "")}); listed in {selfCheckPath}");
+
             if (changed.Count == 0)
             {
                 MpLog.Log($"Join point self-check: all {after.Count} lanes are the same after saving and reloading");
+                WriteDroppedJobsOnly(droppedSection, selfCheckPath);
                 return;
             }
 
@@ -571,6 +584,12 @@ namespace Multiplayer.Client.Desyncs
                     var text = lines.Count == 0 ? "(only this lane's checksum is kept before the save)" : string.Join("\n", lines);
                     details.Add($"{key}: {string.Join(" | ", lines.Where(l => l.EndsWith("CHANGED")).Take(6))}");
                     full.Append($"=== {key}\n{text}\n\n");
+                    if (key == "world / ids")
+                    {
+                        // Who took them: every job and thing id since the join point's save started
+                        var ids = IdLedger.Since(idMarkBefore);
+                        full.Append($"=== ids taken by the reload ({ids.Count}, oldest first)\n{(ids.Count == 0 ? "(none recorded)" : string.Join("\n", ids))}\n\n");
+                    }
                 }
                 else if (leavesBefore != null && leavesBefore.TryGetValue(key, out var before))
                 {
@@ -596,7 +615,9 @@ namespace Multiplayer.Client.Desyncs
 
             if (changed.Count == 0)
             {
-                MpLog.Log($"Join point self-check: all {after.Count} lanes are the same after saving and reloading (plant growth rounded by the save, cold plants made leafless again on load, pawn paths, stopped pawns' destinations and destroyed targets the save drops)");
+                MpLog.Log($"Join point self-check: all {after.Count} lanes are the same after saving and reloading (plant growth rounded by the save, cold plants made leafless again on load, pawn paths, stopped pawns' destinations and destroyed targets the save drops" +
+                          (droppedJobs.Count > 0 ? $", and the {droppedJobs.Count} jobs vanilla dropped on reload" : "") + ")");
+                WriteDroppedJobsOnly(droppedSection, selfCheckPath);
                 return;
             }
 
@@ -606,7 +627,7 @@ namespace Multiplayer.Client.Desyncs
                 System.IO.Directory.CreateDirectory(Multiplayer.DesyncsDir);
                 System.IO.File.WriteAllText(selfCheckPath,
                     $"{Multiplayer.username}: join point self-check at tick {Find.TickManager.TicksGame}, every lane that saving and reloading " +
-                    $"changed (before = the live game, after = the reloaded one)\n\n{full}");
+                    $"changed (before = the live game, after = the reloaded one)\n\n{droppedSection}{full}");
                 written = true;
             }
             catch (Exception e)
@@ -619,6 +640,21 @@ namespace Multiplayer.Client.Desyncs
                         (written ? $" The full diff is in {selfCheckPath}" : "") + $"\n{string.Join("\n", details)}");
         }
 
+        private static void WriteDroppedJobsOnly(string droppedSection, string selfCheckPath)
+        {
+            if (droppedSection.Length == 0) return;
+            try
+            {
+                System.IO.Directory.CreateDirectory(Multiplayer.DesyncsDir);
+                System.IO.File.WriteAllText(selfCheckPath,
+                    $"{Multiplayer.username}: join point self-check at tick {Find.TickManager.TicksGame}: no lane changed but these reload effects\n\n{droppedSection}");
+            }
+            catch (Exception e)
+            {
+                MpLog.Error($"Couldn't write the join point self-check: {e}");
+            }
+        }
+
         /// <summary>
         /// Changes every game makes the same way, since every game reloads at a join point. True when nothing else
         /// differs:
@@ -627,19 +663,24 @@ namespace Multiplayer.Client.Desyncs
         ///   tick, while the live game's plants keep the tick of their last load or long tick. Every load also ticks
         ///   each map once (LoadPatch), so a map left paused since the host's reload is one tick past it: the first
         ///   join point after a host at tick 8 showed every cold plant as leafless 8 (before) vs 9 (after), 2026-10-20
-        /// - what vanilla's save leaves out of a pawn's steering (see <see cref="DroppedBySave"/>).
+        /// - what vanilla's save leaves out of a pawn's steering (see <see cref="DroppedBySave"/>);
+        /// - a job vanilla dropped while reloading (<see cref="ReloadDroppedJobs"/>): the pawn's job, path and carry
+        ///   fields, and the thing it carried, which is on the ground after.
         /// </summary>
         private static bool OnlyReloadEffects(string before, string after, int? reloadTick)
         {
             var a = Index(before);
             var b = Index(after);
-            if (a.Count != b.Count) return false;
 
             foreach (var pair in a)
             {
                 if (!b.TryGetValue(pair.Key, out var other)) return false;
                 if (!OnlyReloadEffectsInLine(pair.Value, other, reloadTick)) return false;
             }
+
+            foreach (var key in b.Keys)
+                if (!a.ContainsKey(key) && !ReloadDroppedJobs.IsDroppedThing(key))
+                    return false;
 
             return true;
         }
@@ -650,11 +691,13 @@ namespace Multiplayer.Client.Desyncs
 
             var fa = LeafDiff.Split(before);
             var fb = LeafDiff.Split(after);
+            var id = before.Split(' ')[0];
             foreach (var key in fa.Keys.Union(fb.Keys))
             {
                 fa.TryGetValue(key, out var va);
                 fb.TryGetValue(key, out var vb);
                 if (va == vb) continue;
+                if (ReloadDroppedJobs.Explains(id, key)) continue;
                 if (key == "leafless" && reloadTick is { } tick && vb == tick.ToString(CultureInfo.InvariantCulture)) continue;
                 if (DroppedBySave(key, va, vb, fa, fb)) continue;
                 if (key != "growth" || !TryFloat(va, out var x) || !TryFloat(vb, out var y) || Math.Abs(x - y) > 1f / 255f + 1e-6f)
@@ -703,10 +746,13 @@ namespace Multiplayer.Client.Desyncs
         private static string WithoutReloadEffects(string before, string after, int? reloadTick)
         {
             var b = Index(after);
+            var a = Index(before);
+            // A thing dropped by a job vanilla ended on reload is in the after leaves only
+            var dropped = b.Where(kv => !a.ContainsKey(kv.Key) && ReloadDroppedJobs.IsDroppedThing(kv.Key)).Select(kv => kv.Value);
             return string.Join("\n", before.Split('\n').Select(line =>
                 line.Length > 0 && b.TryGetValue(line.Split(' ')[0], out var other) && OnlyReloadEffectsInLine(line, other, reloadTick)
                     ? other
-                    : line));
+                    : line).Concat(dropped));
         }
 
         // ThingIDs of the destroyed things pawns' steering targets named before the join point's save
@@ -755,6 +801,9 @@ namespace Multiplayer.Client.Desyncs
 
         private static Dictionary<string, string> worldValuesBefore = new();
 
+        // The id ledger's mark before the join point's save: the ids its reload took come after it
+        private static long idMarkBefore;
+
         /// <summary>
         /// What the world's time and ids lanes are made of, by "lane.name": the id counters (every int field of
         /// the UniqueIDsManager) and the world's clock with the tick manager's.
@@ -787,6 +836,8 @@ namespace Multiplayer.Client.Desyncs
         public static (Dictionary<string, ulong> lanes, Dictionary<string, string> leaves) BeforeJoinPoint()
         {
             JoinPointDrops.Arm();
+            ReloadDroppedJobs.Arm();
+            idMarkBefore = IdLedger.Mark;
             clockBeforeSave = Clock();
             try
             {

@@ -184,6 +184,7 @@ namespace Multiplayer.Client.Desyncs
                 Log.Message("Multiplayer: Rand attribution is off (MpRandAttributionOff.flag)");
 
             RandWatch.Load();
+            RandAttrReports.TakeFromEnvironment();
         }
 
         /// <summary>
@@ -292,6 +293,11 @@ namespace Multiplayer.Client.Desyncs
 
             Sample();
             FoldUnit();
+            if (depth > 1)
+            {
+                framesRepaired++;
+                NoteOpenFrames($"ended in {PhaseName(stack[0].basePhase)}");
+            }
             active = false;
 
             ref var h = ref headers[curHeader];
@@ -526,10 +532,53 @@ namespace Multiplayer.Client.Desyncs
             if (depth > 1)
             {
                 // A frame whose postfix an exception skipped (vanilla catches inside MapPreTick/MapPostTick):
-                // repaired here by design, counted rather than logged every tick
+                // repaired here by design, counted rather than logged every tick; each kind of frame left open is
+                // named once, so a boundary that never pops shows which one it is
                 framesRepaired++;
+                NoteOpenFrames($"moved from {PhaseName(stack[0].basePhase)} to {PhaseName(phase)}");
                 depth = 1;
             }
+        }
+
+        private static readonly HashSet<(RandAttrKind, RandAttrMethod, ushort, ushort)> openFrameKinds = new();
+        private const int MaxOpenFrameKinds = 12;
+
+        /// <summary>Names the frames above the root left open when the root moves on or the scope ends.</summary>
+        private static void NoteOpenFrames(string when)
+        {
+            if (openFrameKinds.Count >= MaxOpenFrameKinds) return;
+            for (int i = depth - 1; i >= 1; i--)
+            {
+                ref var f = ref stack[i];
+                if (!openFrameKinds.Add((f.kind, f.method, f.kind == RandAttrKind.Thing ? (ushort)0 : f.def, f.basePhase))) continue;
+                Note($"Rand attribution: a {DescribeFrame(f)} frame was still open when {RandAttrScope.Name(headers[curHeader].scope)}'s tick " +
+                     $"{when} (depth {depth}, frame {i}; " +
+                     $"{framesRepaired} repairs so far): its boundary pushed without popping. Named once per kind of frame");
+                if (openFrameKinds.Count >= MaxOpenFrameKinds) return;
+            }
+        }
+
+        private static string DescribeFrame(Frame f)
+        {
+            var sb = new StringBuilder(f.kind.ToString());
+            if (f.method != RandAttrMethod.None) sb.Append(' ').Append(f.method);
+            switch (f.kind)
+            {
+                case RandAttrKind.Thing:
+                    var def = DefDatabase<ThingDef>.AllDefsListForReading.FirstOrDefault(d => d.shortHash == f.def);
+                    sb.Append(' ').Append(def?.defName ?? "#" + f.def).Append(f.owner);
+                    if (def != null) sb.Append(" (").Append(def.thingClass?.Name).Append(')');
+                    break;
+                case RandAttrKind.WorldObject:
+                    sb.Append(' ').Append(DefDatabase<WorldObjectDef>.AllDefsListForReading.FirstOrDefault(d => d.shortHash == f.def)?.defName ?? "#" + f.def).Append(f.owner);
+                    break;
+                default:
+                    if (f.owner != 0) sb.Append(' ').Append(f.owner);
+                    break;
+            }
+            if (f.basePhase != 0) sb.Append(" phase ").Append(PhaseName(f.basePhase));
+            if (f.phase != 0) sb.Append(" / ").Append(PhaseName(f.phase));
+            return sb.ToString();
         }
 
         /// <summary>Names the command's handler once it is known (sync handlers).</summary>
@@ -574,6 +623,7 @@ namespace Multiplayer.Client.Desyncs
             }
             RandWatch.SaveIfDirty();
             RandInjectPatch.Poll();
+            RandAttrReports.Update();
         }
 
         public static string StatsLine()

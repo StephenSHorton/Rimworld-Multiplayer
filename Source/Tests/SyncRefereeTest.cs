@@ -103,6 +103,50 @@ public class SyncRefereeTest
         Assert.That(Sent(cara, Packets.Server_SyncVerdict), Is.EqualTo(1));
     }
 
+    private static byte[] RandOpinion(int tick, ulong mapState, ulong attrHash) => BinderOf.Identity<SyncOpinion>().Serialize(new SyncOpinion
+    {
+        startTick = tick,
+        commandRandomStates = [1],
+        worldRandomStates = [2],
+        mapRandomStates = [new MapRandomState { mapId = 1, randomStates = [mapState] }],
+        traceHashes = [],
+        faults = [],
+        lanes = [],
+        randAttr = [new RandAttrHash { scope = 1, hash = attrHash, records = 10 }]
+    });
+
+    [Test]
+    public void SoftRandAttrDifferenceLeavesTheHardDesyncItsDiff()
+    {
+        var host = AddPlayer("host", isHost: true);
+        var blake = AddPlayer("Blake");
+
+        // Same random state, different attribution: soft, one request
+        server.gameTimer = 300;
+        server.referee.OnOpinion(host, RandOpinion(300, 3, 1), true);
+        server.referee.OnOpinion(blake, RandOpinion(300, 3, 2), false);
+        Assert.That(Sent(blake, Packets.Server_RandAttrRequest), Is.EqualTo(1));
+
+        // The soft one again cools down
+        server.gameTimer = 330;
+        server.referee.OnOpinion(host, RandOpinion(330, 3, 1), true);
+        server.referee.OnOpinion(blake, RandOpinion(330, 3, 2), false);
+        Assert.That(Sent(blake, Packets.Server_RandAttrRequest), Is.EqualTo(1));
+
+        // The hard desync a little later still gets its request, inside the soft cooldown
+        server.gameTimer = 600;
+        server.referee.OnOpinion(host, RandOpinion(600, 3, 1), true);
+        server.referee.OnOpinion(blake, RandOpinion(600, 4, 2), false);
+        Assert.That(Sent(blake, Packets.Server_RandAttrRequest), Is.EqualTo(2));
+        Assert.That(Sent(host, Packets.Server_RandAttrRequest), Is.EqualTo(2));
+
+        // and the same desync in the next opinion is not asked again
+        server.gameTimer = 630;
+        server.referee.OnOpinion(host, RandOpinion(630, 3, 1), true);
+        server.referee.OnOpinion(blake, RandOpinion(630, 4, 2), false);
+        Assert.That(Sent(blake, Packets.Server_RandAttrRequest), Is.EqualTo(2));
+    }
+
     [Test]
     public void HarmonyRowDifferenceIsAWarningNamingMethods()
     {

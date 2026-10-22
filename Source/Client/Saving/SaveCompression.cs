@@ -48,6 +48,12 @@ namespace Multiplayer.Client
         const string CompressedRocks = "compressedRocks";
         const string CompressedPlants = "compressedPlants";
         const string CompressedRockRubble = "compressedRockRubble";
+        const string FormatVersionLabel = "mpCompressionVersion";
+
+        // 1: rock rubble keeps its rotation (a byte after its grow tick). A save without the label is version 0 and
+        // its rubble loads facing north, as before
+        public const int FormatVersion = 1;
+        private static int loadingVersion;
 
         public static void Save(Map map)
         {
@@ -67,6 +73,9 @@ namespace Multiplayer.Client
                 SaveRockRubble(map, rockRubbleData, cell);
                 SavePlant(map, plantData, cell);
             }
+
+            int version = FormatVersion;
+            Scribe_Values.Look(ref version, FormatVersionLabel, 0);
 
             SaveBinary(rockData, CompressedRocks);
             SaveBinary(rockRubbleData, CompressedRockRubble);
@@ -98,6 +107,7 @@ namespace Multiplayer.Client
                 writer.Write(thing.thingIDNumber);
                 writer.Write((byte)thing.thickness);
                 writer.Write(thing.growTick);
+                writer.Write(thing.rotationInt.AsByte);
             }
             else
             {
@@ -145,6 +155,9 @@ namespace Multiplayer.Client
 
             foreach (ThingDef thingDef in DefDatabase<ThingDef>.AllDefs)
                 thingDefsByShortHash[thingDef.shortHash] = thingDef;
+
+            loadingVersion = 0;
+            Scribe_Values.Look(ref loadingVersion, FormatVersionLabel, 0);
 
             DeepProfiler.Start("Deserializing compressed things");
             BinaryReader rockData = LoadBinary(CompressedRocks);
@@ -215,6 +228,7 @@ namespace Multiplayer.Client
             int id = reader.ReadInt32();
             byte thickness = reader.ReadByte();
             int growTick = reader.ReadInt32();
+            byte rot = loadingVersion >= 1 ? reader.ReadByte() : (byte)0;
             if (!thingDefsByShortHash.TryGetValue(defId, out var def))
             {
                 WarnBadShortHash(id, defId);
@@ -226,6 +240,7 @@ namespace Multiplayer.Client
             thing.thingIDNumber = id;
             thing.thickness = thickness;
             thing.growTick = growTick;
+            thing.rotationInt = new Rot4(rot);
 
             thing.SetPositionDirect(cell);
             return thing;

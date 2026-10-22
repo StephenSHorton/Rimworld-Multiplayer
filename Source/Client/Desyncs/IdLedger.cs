@@ -36,6 +36,7 @@ namespace Multiplayer.Client.Desyncs
         private static readonly Entry[] entries = new Entry[Kept];
         private static int next;
         private static int count;
+        private static long recorded;
         private static int outsideLogged;
         private static bool dumped;
 
@@ -57,6 +58,7 @@ namespace Multiplayer.Client.Desyncs
             entries[next] = new Entry(kind, id, Find.TickManager?.TicksGame ?? -1, sim, stack);
             next = (next + 1) % Kept;
             if (count < Kept) count++;
+            recorded++;
 
             // A real id outside ticking, commands and loading is taken on this game only. Rimkit's Nice Bill Tab
             // makes a throwaway mech for its stats after loading and puts every id counter back afterwards.
@@ -71,6 +73,23 @@ namespace Multiplayer.Client.Desyncs
         internal static string Describe(StackTrace stack, int frames) =>
             string.Join(" < ", stack.GetFrames().Select(f => f.GetMethod()).Where(m => m != null && m.DeclaringType?.Namespace != "HarmonyLib")
                 .Take(frames).Select(m => $"{m.DeclaringType?.Name}.{m.Name}"));
+
+        /// <summary>A mark for <see cref="Since"/>: how many ids were recorded so far.</summary>
+        public static long Mark => recorded;
+
+        /// <summary>Every id recorded since <paramref name="mark"/> that the ring still holds, oldest first, with stacks.</summary>
+        public static List<string> Since(long mark, int frames = 12)
+        {
+            var lines = new List<string>();
+            long from = System.Math.Max(mark, recorded - count);
+            if (from > mark) lines.Add($"({from - mark} older ids no longer kept)");
+            for (long s = from; s < recorded; s++)
+            {
+                var e = entries[(int)(s % Kept)];
+                lines.Add($"{e.kind}{e.id} tick={e.tick}{(e.sim ? "" : " OUTSIDE-SIM")} {Describe(e.stack, frames)}");
+            }
+            return lines;
+        }
 
         /// <summary>Called when a game first hears that the ids lane differs.</summary>
         public static void OnLaneDiffers(string message)

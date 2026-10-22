@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Multiplayer.Client.Util;
+using Multiplayer.Common;
 using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Util;
 using Multiplayer.Common.Networking.Packet;
@@ -85,6 +86,42 @@ namespace Multiplayer.Client.Desyncs
             MpLog.Log($"Rand attribution: watch {RandWatch.Describe()}, tier 2 {(RandAttribution.tier2 ? "on" : "off")}");
 
             Messages.Message($"Rand attribution: {packet.summary}", MessageTypeDefOf.SilentInput, false);
+        }
+
+        // --- The summary line after a resync ---
+
+        public const string SummaryVariable = "MultiplayerRandAttrSummary";
+        private static string repost;
+
+        /// <summary>
+        /// Keeps a window's summary to post again once the resync (or the restarted process) is playing: the reload
+        /// drops the message posted when the diff arrived, and the overlay closes as it starts. Called right before
+        /// the resync, which leaves the playing state at once.
+        /// </summary>
+        public static void KeepForAfterResync(int opinionStart) => repost = ForWindow(opinionStart)?.packet.summary;
+
+        /// <summary>The summary a restarted process should post (the restart hands it over in its environment).</summary>
+        public static string KeptSummary => repost;
+
+        /// <summary>At startup: a summary the process before a restart kept.</summary>
+        public static void TakeFromEnvironment()
+        {
+            var text = Environment.GetEnvironmentVariable(SummaryVariable);
+            if (text.NullOrEmpty()) return;
+            Environment.SetEnvironmentVariable(SummaryVariable, "");
+            repost = text;
+        }
+
+        /// <summary>Every frame: posts the kept summary once this game is playing again after the reload.</summary>
+        public static void Update()
+        {
+            if (repost == null) return;
+            if (Multiplayer.Client is not { State: ConnectionStateEnum.ClientPlaying } || Current.ProgramState != ProgramState.Playing ||
+                LongEventHandler.AnyEventNowOrWaiting) return;
+
+            Messages.Message($"Rand attribution of the last desync: {repost}", MessageTypeDefOf.CautionInput, false);
+            MpLog.Log($"Rand attribution: posted the last desync's summary again after the resync");
+            repost = null;
         }
 
         private static string Gunzip(byte[] data)

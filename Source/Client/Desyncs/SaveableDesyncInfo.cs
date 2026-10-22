@@ -50,7 +50,7 @@ public class SaveableDesyncInfo(
                 ? string.Join("\n\n", LeafRequests.recentDiffs)
                 : "No entity diffs: no lane differed in time for the server to compare entities");
 
-            zip.AddEntry("local_traces.txt", GetLocalTraces());
+            zip.AddEntry("local_traces.txt", GetLocalTraces(hostInfo));
             zip.AddEntry("host_traces.txt", hostInfo?.Traces ?? "No host traces");
 
             zip.AddEntry("local_jitted_methods.txt", JittedMethods.GetJittedMethodsString());
@@ -96,7 +96,7 @@ public class SaveableDesyncInfo(
         Log.Message($"Desync info writing took {watch.ElapsedMilliseconds}");
     }
 
-    private string GetLocalTraces()
+    private string GetLocalTraces([CanBeNull] HostInfo hostInfo)
     {
         var traceMessage = "";
         var localCount = local.desyncStackTraceHashes.Count;
@@ -118,7 +118,17 @@ public class SaveableDesyncInfo(
                            " has ended sooner on one of the connection sides\n\n";
         }
 
-        traceMessage += local.GetFormattedStackTracesForRange(diffAt);
+        string note;
+        try
+        {
+            note = diffAtFound ? TraceDiffNote.For(local, diffAt, hostInfo?.Traces, "the host") : "";
+        }
+        catch (Exception e)
+        {
+            note = $"Couldn't compare the first differing trace's kind: {e.Message}\n\n";
+        }
+
+        traceMessage += note + local.GetFormattedStackTracesForRange(diffAt);
         return traceMessage;
     }
 

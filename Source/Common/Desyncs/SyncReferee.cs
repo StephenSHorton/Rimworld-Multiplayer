@@ -237,11 +237,11 @@ public class SyncReferee
         if (verdict.rngDiffs.Count > 0)
         {
             var (scope, entry) = verdict.rngDiffs[0];
-            RequestRandAttr(player, scope, opinion.startTick, (short)System.Math.Max(0, entry - 1), (short)System.Math.Max(0, entry));
+            RequestRandAttr(player, scope, opinion.startTick, (short)System.Math.Max(0, entry - 1), (short)System.Math.Max(0, entry), hard: true);
         }
         else if (verdict.randAttrDiffs.Count > 0)
         {
-            RequestRandAttr(player, verdict.randAttrDiffs[0], opinion.startTick, 0, short.MaxValue);
+            RequestRandAttr(player, verdict.randAttrDiffs[0], opinion.startTick, 0, short.MaxValue, hard: false);
         }
 
         if (verdict.hard != null && hardReported.Add(player.id))
@@ -411,16 +411,21 @@ public class SyncReferee
     }
 
     private readonly Dictionary<int, RandAttrRequest> randAttrRequests = new();
-    private readonly Dictionary<(int, int), int> lastRandAttrRequest = new();
+    // Keyed by (player, scope, hard): a soft difference (same random state, attribution only) cools down on its own
+    // key, so the hard desync that often follows it a few hundred ticks later still gets its diff (2026-10-22: a soft
+    // difference on map 1 used the cooldown and the hard desync 240-600 ticks later arrived with no diff)
+    private readonly Dictionary<(int, int, bool), int> lastRandAttrRequest = new();
     private int nextRandAttrRequest;
 
     /// <summary>
     /// Asks the reference game and the player's for their Rand attribution tables of a window they both already
-    /// simulated. Each game answers from what it kept, so unlike the leaves nothing waits for a tick.
+    /// simulated. Each game answers from what it kept, so unlike the leaves nothing waits for a tick. A random state
+    /// difference (<paramref name="hard"/>) is asked for whatever soft difference came before it; it only waits for
+    /// an earlier hard request of the same player and scope, since every opinion until the resync repeats it.
     /// </summary>
-    private void RequestRandAttr(ServerPlayer player, int scope, int opinionStart, short entryFrom, short entryTo)
+    private void RequestRandAttr(ServerPlayer player, int scope, int opinionStart, short entryFrom, short entryTo, bool hard)
     {
-        var key = (player.id, scope);
+        var key = (player.id, scope, hard);
         if (lastRandAttrRequest.TryGetValue(key, out var last) && server.gameTimer - last < RandAttrCooldown) return;
 
         var reference = server.PlayingPlayers.FirstOrDefault(p => server.ArbiterPlaying ? p.IsArbiter : p.IsHost);
