@@ -103,21 +103,53 @@ namespace Multiplayer.Client.Desyncs
         /// <summary>The zip entries every desync report takes from Rand attribution.</summary>
         public static void AddToZip(System.IO.Compression.ZipArchive zip, int opinionStart, string localName)
         {
-            var d = ForWindow(opinionStart) ?? Latest;
-            zip.AddEntry("rand_diff.txt", d != null
-                ? (d.packet.opinionStart != opinionStart ? $"Note: the newest diff is from window {d.packet.opinionStart}, not {opinionStart}\n\n" : "") + d.FullText()
-                : "No Rand attribution diff arrived (the referee asks both games for their tables when a random state differs)");
+            // Each entry on its own: a failure here must not cost the rest of the report
+            void Entry(string name, Func<string> text)
+            {
+                string content;
+                try
+                {
+                    content = text();
+                }
+                catch (Exception e)
+                {
+                    content = $"Couldn't write {name}: {e}";
+                }
+                try
+                {
+                    zip.AddEntry(name, content);
+                }
+                catch (Exception e)
+                {
+                    Log.Warning($"Couldn't add {name} to the desync report: {e.Message}");
+                }
+            }
 
-            bool haveLocal = RandAttribution.Table(opinionStart, null, 0, int.MaxValue, out var localTable, out var localStacks);
-            zip.AddEntry("local_rand_table.txt", haveLocal
-                ? $"Rand attribution table of {localName}'s game, window {opinionStart}, every scope\n\n{localTable}"
-                : $"No Rand attribution records of window {opinionStart} on this game{(RandAttribution.disabled ? " (attribution is off)" : "")}");
-            zip.AddEntry("remote_rand_table.txt", d != null ? $"From the referee's diff ({d.Title}): the host's table, then {d.packet.username}'s\n\n== host\n{d.refTable}\n== {d.packet.username}\n{d.otherTable}" : "No remote table");
-            zip.AddEntry("targeted_traces.txt",
+            Diff d = null;
+            Entry("rand_diff.txt", () =>
+            {
+                d = ForWindow(opinionStart) ?? Latest;
+                return d != null
+                    ? (d.packet.opinionStart != opinionStart ? $"Note: the newest diff is from window {d.packet.opinionStart}, not {opinionStart}\n\n" : "") + d.FullText()
+                    : "No Rand attribution diff arrived (the referee asks both games for their tables when a random state differs)";
+            });
+
+            string localStacks = "";
+            Entry("local_rand_table.txt", () =>
+            {
+                bool haveLocal = RandAttribution.Table(opinionStart, null, 0, int.MaxValue, out var localTable, out localStacks);
+                return haveLocal
+                    ? $"Rand attribution table of {localName}'s game, window {opinionStart}, every scope\n\n{localTable}"
+                    : $"No Rand attribution records of window {opinionStart} on this game{(RandAttribution.disabled ? " (attribution is off)" : "")}";
+            });
+            Entry("remote_rand_table.txt", () => d != null
+                ? $"From the referee's diff ({d.Title}): the host's table, then {d.packet.username}'s\n\n== host\n{d.refTable}\n== {d.packet.username}\n{d.otherTable}"
+                : "No remote table");
+            Entry("targeted_traces.txt", () =>
                 (d != null && !d.stackDiff.NullOrEmpty() ? d.stackDiff + "\n\n" : "") +
                 (localStacks.Length > 0 ? "== this game's captures for this window\n" + localStacks
                     : RandAttribution.watchArmed ? $"Watch armed ({RandWatch.Describe()}) but no captures for this window" : "No watch armed"));
-            zip.AddEntry("rand_attribution_stats.txt", RandAttribution.StatsReport());
+            Entry("rand_attribution_stats.txt", RandAttribution.StatsReport);
         }
     }
 }

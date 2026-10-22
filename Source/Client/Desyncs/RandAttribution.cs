@@ -158,6 +158,8 @@ namespace Multiplayer.Client.Desyncs
         public static int offThreadCalls;
         private static int offThreadLogged;
         private static int selfCheckErrors;
+        private static long framesRepaired;
+        private static int nestedBegins;
         private static readonly ConcurrentQueue<(bool error, string text)> pendingLogs = new();
         private static readonly List<string> recentSelfCheck = new();
 
@@ -205,7 +207,7 @@ namespace Multiplayer.Client.Desyncs
         {
             if (active)
             {
-                Enqueue($"Rand attribution: scope {RandAttrScope.Name(scope)} began inside {RandAttrScope.Name(headers[curHeader].scope)}; closing that one");
+                if (nestedBegins++ < 20) Enqueue($"Rand attribution: scope {RandAttrScope.Name(scope)} began inside {RandAttrScope.Name(headers[curHeader].scope)}; closing that one");
                 End();
             }
 
@@ -493,7 +495,9 @@ namespace Multiplayer.Client.Desyncs
             stack[0].basePhase = phase;
             if (depth > 1)
             {
-                Enqueue($"Rand attribution: {depth - 1} frames still open at phase {PhaseName(phase)}; closing them");
+                // A frame whose postfix an exception skipped (vanilla catches inside MapPreTick/MapPostTick):
+                // repaired here by design, counted rather than logged every tick
+                framesRepaired++;
                 depth = 1;
             }
         }
@@ -542,7 +546,7 @@ namespace Multiplayer.Client.Desyncs
             double us = timedTicks == 0 ? 0 : timedBoundaryTicks * 1_000_000.0 / Stopwatch.Frequency / timedTicks;
             return $"rand attribution: avg {recordsTotal / (double)ticksRecorded:F1} records/tick, {boundariesTotal / (double)ticksRecorded:F1} " +
                    $"boundaries/tick, {us:F1} us/tick (timed, upper bound), tier2={(tier2 ? "on" : "off")}, off-thread calls {offThreadCalls}, " +
-                   $"self-check errors {selfCheckErrors}";
+                   $"self-check errors {selfCheckErrors}, frames left open by exceptions {framesRepaired}";
         }
 
         public static string StatsReport()

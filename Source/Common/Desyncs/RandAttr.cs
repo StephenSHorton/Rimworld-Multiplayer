@@ -506,7 +506,7 @@ public static class RandAttrDiff
 
         public IEnumerable<string> Significant(int top = 8) => frames
             .Select(f => f.Trim())
-            .Where(f => !f.Contains("Verse.Rand.") && !f.Contains("DeferredStackTracing") && !f.Contains("RandAttribution"))
+            .Where(f => !f.Contains("Verse.Rand::") && !f.Contains("Verse.Rand.") && !f.Contains("DeferredStackTracing") && !f.Contains("RandAttribution"))
             .Take(top);
 
         public static string Header(int entry, int unit, int call, uint iteration) => $"cap e{entry} u{unit} c{call} it={iteration}";

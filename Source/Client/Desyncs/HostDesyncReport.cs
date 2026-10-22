@@ -73,17 +73,32 @@ namespace Multiplayer.Client.Desyncs
                     info.AppendLine($"Rimworld Version and Rev|||{VersionControl.CurrentVersionStringWithRev}");
                     zip.AddEntry("desync_info", info.ToString());
 
+                    // Each entry on its own: one that fails must not cost the rest
+                    void Entry(string entry, Func<string> text)
+                    {
+                        string content;
+                        try
+                        {
+                            content = text();
+                        }
+                        catch (Exception e)
+                        {
+                            content = $"Couldn't write {entry}: {e}";
+                        }
+                        if (content != null) zip.AddEntry(entry, content);
+                    }
+
                     var sync = Multiplayer.game?.sync;
-                    zip.AddEntry("local_flight_recorder.txt", sync?.recorder.Dump() ?? "No game");
+                    Entry("local_flight_recorder.txt", () => sync?.recorder.Dump() ?? "No game");
                     RandAttrReports.AddToZip(zip, verdict.tick, Multiplayer.username);
-                    zip.AddEntry("entity_diffs.txt", LeafRequests.recentDiffs.Count > 0 ? string.Join("\n\n", LeafRequests.recentDiffs) : "No entity diffs");
-
-                    var local = sync?.knownClientOpinions.FirstOrDefault(o => o.isLocalClientsOpinion && o.startTick == verdict.tick);
-                    zip.AddEntry("local_traces.txt", local != null ? local.GetFormattedStackTracesForRange(0) : "This window's opinion is no longer kept");
-
-                    var logs = LogGenerator.PrepareLogData();
-                    if (logs != null) zip.AddEntry("local_logs.txt", logs);
-                    zip.AddEntry("local_metadata.txt", MetadataGenerator.Generate());
+                    Entry("entity_diffs.txt", () => LeafRequests.recentDiffs.Count > 0 ? string.Join("\n\n", LeafRequests.recentDiffs) : "No entity diffs");
+                    Entry("local_traces.txt", () =>
+                    {
+                        var local = sync?.knownClientOpinions.FirstOrDefault(o => o.isLocalClientsOpinion && o.startTick == verdict.tick);
+                        return local != null ? local.GetFormattedStackTracesForRange(0) : "This window's opinion is no longer kept";
+                    });
+                    Entry("local_logs.txt", LogGenerator.PrepareLogData);
+                    Entry("local_metadata.txt", MetadataGenerator.Generate);
                 }
 
                 foreach (var old in new DirectoryInfo(Multiplayer.DesyncsDir).GetFiles("Desync-host-*.zip").OrderByDescending(f => f.LastWriteTime).Skip(Kept))

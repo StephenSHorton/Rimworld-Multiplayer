@@ -97,23 +97,27 @@ public class RandAttrDiffTest
     [Test]
     public void FirstDifferingCallFindsTheExtraCall()
     {
-        var host = string.Join("\n", Cap(8, 1, 1, "*Verse.Rand.get_Value()", "*Verse.Pawn.TickInterval(Int32)"));
-        var blake = string.Join("\n", Cap(8, 1, 1, "*Verse.Rand.get_Value()", "*Verse.Pawn.TickInterval(Int32)"),
-            Cap(8, 1, 2, "*Verse.Rand.get_Value()", "Multiplayer.Client.Debug.RandInjectPatch.Postfix()", "*Verse.Pawn.TickInterval(Int32)"));
+        // Frames as Harmony's FullDescription writes them
+        const string randValue = "*static System.Single Verse.Rand::get_Value()";
+        const string pawnTick = "*virtual System.Void Verse.Pawn::TickInterval(System.Int32 delta)";
+        const string inject = "static System.Void Multiplayer.Client.Desyncs.RandInjectPatch::Postfix(Verse.Pawn __instance)";
+        var host = string.Join("\n", Cap(8, 1, 1, randValue, pawnTick));
+        var blake = string.Join("\n", Cap(8, 1, 1, randValue, pawnTick), Cap(8, 1, 2, randValue, inject, pawnTick));
 
         var call = RandAttrDiff.FirstDifferingCall(host, blake, 8, 1, 1, "host", "Blake", out var detail);
-        Assert.That(call, Does.StartWith("first extra call (call 2 on Blake): Multiplayer.Client.Debug.RandInjectPatch.Postfix() < Verse.Pawn.TickInterval(Int32)"));
+        Assert.That(call, Is.EqualTo("first extra call (call 2 on Blake): " + inject + " < " + pawnTick.TrimStart('*')));
         Assert.That(detail, Does.Contain("== host").And.Contain("== Blake"));
     }
 
     [Test]
     public void FirstDifferingCallComparesPatchedFrames()
     {
-        var host = Cap(2, 0, 1, "*Verse.Rand.get_Value()", "Some.Inlined()", "*Verse.Pawn.TickInterval(Int32)");
-        var same = Cap(2, 0, 1, "*Verse.Rand.get_Value()", "*Verse.Pawn.TickInterval(Int32)");
+        var host = Cap(2, 0, 1, "*static System.Single Verse.Rand::get_Value()", "static System.Void Some::Inlined()", "*System.Void Verse.Pawn::TickInterval(System.Int32 delta)");
+        var same = Cap(2, 0, 1, "*static System.Single Verse.Rand::get_Value()", "*System.Void Verse.Pawn::TickInterval(System.Int32 delta)");
         Assert.That(RandAttrDiff.FirstDifferingCall(host, same, 2, 0, 0, "host", "Blake", out _), Is.Null);
 
-        var other = Cap(2, 0, 1, "*Verse.Rand.get_Value()", "*Verse.Pawn_JobTracker.JobTrackerTickInterval(Int32)", "*Verse.Pawn.TickInterval(Int32)");
+        var other = Cap(2, 0, 1, "*static System.Single Verse.Rand::get_Value()", "*System.Void Verse.AI.Pawn_JobTracker::JobTrackerTickInterval(System.Int32 delta)",
+            "*System.Void Verse.Pawn::TickInterval(System.Int32 delta)");
         Assert.That(RandAttrDiff.FirstDifferingCall(host, other, 2, 0, 0, "host", "Blake", out _), Does.StartWith("call 1 differs"));
     }
 
