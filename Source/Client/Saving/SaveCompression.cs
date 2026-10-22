@@ -281,6 +281,27 @@ namespace Multiplayer.Client
             return thing;
         }
 
+        /// <summary>
+        /// Whether Save writes t in the map's compressed data. Map.ExposeData leaves everything this is true for out
+        /// of the things list, so it is true only for the one thing per cell and kind (rock, plant, rubble) that Save
+        /// finds there. 2026-10-21: every chunk after the first on an Adaptive Storage crate's cell was written nowhere.
+        /// </summary>
+        public static bool IsCompressed(Thing t)
+        {
+            // Vanilla's guards (CompressibilityDeciderUtility.IsSaveCompressible): a debug save keeps everything, and
+            // items on a cell that holds several (shelves, crates) and buildings that keep their terrain aren't compressed
+            if (Scribe.saver.savingForDebug) return false;
+            if (t.def.category == ThingCategory.Item && t.Position.GetMaxItemsAllowedInCell(t.Map) > 1) return false;
+            if (t is Building { canChangeTerrainOnDestroyed: false }) return false;
+
+            // Save takes the first of a kind in the cell; any other is saved in the things list
+            var things = t.Map.thingGrid.ThingsListAt(t.Position);
+            if (IsSaveRock(t)) return things.Find(IsSaveRock) == t;
+            if (IsSavePlant(t)) return things.Find(IsSavePlant) == t;
+            if (IsSaveRockRubble(t)) return things.Find(IsSaveRockRubble) == t;
+            return false;
+        }
+
         public static bool IsSaveRock(Thing t)
         {
             return t.def.saveCompressible && (!t.def.useHitPoints || t.HitPoints == t.MaxHitPoints);
@@ -406,13 +427,16 @@ namespace Multiplayer.Client
 
             if (!t.Spawned) return;
 
-            var mpCompressible = SaveCompression.IsSavePlant(t) || SaveCompression.IsSaveRock(t) || SaveCompression.IsSaveRockRubble(t);
-            __result = mpCompressible && !Referenced(t);
+            __result = SaveCompression.IsCompressed(t) && !Referenced(t);
         }
 
+        // Vanilla asks every map's decider: a thing can be referenced from another map
         static bool Referenced(Thing t)
         {
-            return (t.Map?.compressor?.compressibilityDecider.IsReferenced(t) ?? false) || SaveCompression.extraReferenced.Contains(t);
+            foreach (var map in Find.Maps)
+                if (map.compressor?.compressibilityDecider?.IsReferenced(t) ?? false)
+                    return true;
+            return SaveCompression.extraReferenced.Contains(t);
         }
     }
 }

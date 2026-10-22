@@ -200,6 +200,60 @@ namespace Multiplayer.Client
         static void Finalizer(TimeSnapshot? __state) => __state?.Set();
     }
 
+    // A causer on another map refreshes its condition in this map's clock (above), but only when its own map ticks.
+    // Under async time that map can be paused or slower while this one runs out the condition's transition ticks
+    // (5000 for a smoke spewer): the condition ended here while the causer still listed it, a save then held a
+    // reference to nothing ("Could not resolve GameCondition_SmokeSpewer_N" on loads), and the causer's next tick
+    // made a new one. A condition stays while its causer is spawned on another map, active and in range of this one
+    [HarmonyPatch(typeof(GameCondition), nameof(GameCondition.Expired), MethodType.Getter)]
+    static class ConditionFromOtherMapCauserStays
+    {
+        static void Postfix(GameCondition __instance, ref bool __result)
+        {
+            if (!__result || Multiplayer.Client == null) return;
+            if (__instance.conditionCauser is not ThingWithComps { Spawned: true } causer) return;
+
+            var map = __instance.gameConditionManager?.ownerMap;
+            if (map == null || causer.Map == map) return;
+
+            foreach (var comp in causer.AllComps)
+                if (comp is CompCauseGameCondition cause && cause.ConditionDef == __instance.def && cause.Active && cause.InAoE(map.Tile))
+                {
+                    __result = false;
+                    return;
+                }
+        }
+    }
+
+    // Backstop for the same: a save leaves out conditions the causer lists that its map no longer has. Only the save:
+    // the live list decides when the causer makes a new condition, and a save can run on one game alone
+    [HarmonyPatch(typeof(CompCauseGameCondition), nameof(CompCauseGameCondition.PostExposeData))]
+    static class CausedConditionsSaveOnlyActive
+    {
+        static void Prefix(CompCauseGameCondition __instance, ref Dictionary<Map, GameCondition> __state)
+        {
+            if (Multiplayer.Client == null || Scribe.mode != LoadSaveMode.Saving) return;
+
+            var caused = __instance.causedConditions;
+            Dictionary<Map, GameCondition> saved = null;
+            foreach (var (map, condition) in caused)
+                if (condition == null || !map.GameConditionManager.ActiveConditions.Contains(condition))
+                {
+                    saved ??= new Dictionary<Map, GameCondition>(caused);
+                    saved.Remove(map);
+                }
+
+            if (saved == null) return;
+            __state = caused;
+            __instance.causedConditions = saved;
+        }
+
+        static void Finalizer(CompCauseGameCondition __instance, Dictionary<Map, GameCondition> __state)
+        {
+            if (__state != null) __instance.causedConditions = __state;
+        }
+    }
+
     public struct TimeSnapshot
     {
         public int ticks;

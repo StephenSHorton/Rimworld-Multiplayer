@@ -388,6 +388,15 @@ namespace Multiplayer.Client.Desyncs
                         }
                         return;
                     }
+                    // The history's archive holds the letters and messages each player was shown (and pinned); the
+                    // rest of it (graph recorders, history events) is the simulation's
+                    if (name == "game/history")
+                    {
+                        foreach (XmlNode child in node.ChildNodes)
+                            if (child.Name != "archive")
+                                sections[$"{name}/{child.Name}"] = child.OuterXml;
+                        return;
+                    }
                     sections[name] = node.OuterXml;
                 }
 

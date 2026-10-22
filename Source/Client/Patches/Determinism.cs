@@ -316,6 +316,31 @@ namespace Multiplayer.Client.Patches
                     yield return inst;
             }
         }
+
+        // Vanilla's tidy in its place, from synced state only: a battle that was absorbed is out of the battle log,
+        // and one the log dropped isn't saved, so a pawn kept pointing at it ("Could not resolve Battle_N" on loads).
+        // Only the save gets the tidied value: a save can run on one game alone, and the live field decides which
+        // battle the pawn's next log entry joins
+        static void Prefix(Pawn_RecordsTracker __instance, ref (bool set, Battle battle) __state)
+        {
+            if (Multiplayer.Client == null || Scribe.mode != LoadSaveMode.Saving) return;
+
+            var battle = __instance.battleActive;
+            if (battle == null) return;
+            __state = (true, battle);
+
+            while (battle.AbsorbedBy != null)
+                battle = battle.AbsorbedBy;
+
+            // The pawn's own clock: EnterBattle ran in its map's context (or the world's)
+            var ticks = __instance.pawn?.MapHeld?.AsyncTime()?.mapTicks ?? Multiplayer.AsyncWorldTime?.worldTicks ?? Find.TickManager.TicksGame;
+            __instance.battleActive = Find.BattleLog.Battles.Contains(battle) && __instance.battleExitTick >= ticks ? battle : null;
+        }
+
+        static void Finalizer(Pawn_RecordsTracker __instance, (bool set, Battle battle) __state)
+        {
+            if (__state.set) __instance.battleActive = __state.battle;
+        }
     }
 
     [HarmonyPatch(typeof(SituationalThoughtHandler), nameof(SituationalThoughtHandler.CheckRecalculateSocialThoughts))]

@@ -100,10 +100,13 @@ public class AsyncWorldTimeComp : IExposable, ITickable
         Scribe_Values.Look(ref playerCount, "playerCount");
         CurrentPlayerCount = playerCount;
 
+        // The tick manager's speed, for the record. Before 2026-10-21 it was saved under "timeSpeed" as well, and a
+        // load read the first of that name, the world's; loads keep giving the tick manager the world's speed (every
+        // game the same), old saves and new
         TimeSpeed timeSpeed = Find.TickManager.CurTimeSpeed;
-        Scribe_Values.Look(ref timeSpeed, "timeSpeed");
+        Scribe_Values.Look(ref timeSpeed, "tickManagerTimeSpeed", forceSave: true);
         if (Scribe.mode == LoadSaveMode.LoadingVars)
-            Find.TickManager.CurTimeSpeed = timeSpeed;
+            Find.TickManager.CurTimeSpeed = timeSpeedInt;
 
         if (Scribe.mode == LoadSaveMode.LoadingVars)
             Multiplayer.game.worldComp = new MultiplayerWorldComp(world);
@@ -210,7 +213,7 @@ public class AsyncWorldTimeComp : IExposable, ITickable
         if (comp == null || Find.TickManager == null) return save();
 
         var prev = TimeSnapshot.Current();
-        // Not the speed: a load takes the world's from its own timeSpeed, saved first under the same name
+        // Not the speed: a load gives the tick manager the world's own timeSpeed
         // A save made inside a map's context (in a tick or a command) finds that map's clock there rightly
         comp.ApplyWorldClock("a save", speed: false, warn: !Multiplayer.Ticking && !Multiplayer.ExecutingCmds);
         try

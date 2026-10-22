@@ -692,4 +692,18 @@ namespace Multiplayer.Client
             }
         }
     }
+
+    // Gizmo_SetFuelLevel writes TargetFuelLevel on every draw, and the setter stores it in configuredTargetFuelLevel
+    // (-1 until set: the def's default). The watch reads the property, which comes out the same, so nothing was synced
+    // and the drawing game kept 50 where the others had -1 (a VPE nuclear generator's). A write outside the simulation
+    // that doesn't change the target stores nothing; one that does goes through the watch as before
+    [HarmonyPatch(typeof(CompRefuelable), nameof(CompRefuelable.TargetFuelLevel), MethodType.Setter)]
+    static class CompRefuelableSkipUnchangedTarget
+    {
+        static bool Prefix(CompRefuelable __instance, float value)
+        {
+            if (!Multiplayer.OutsideSimulation) return true;
+            return !Mathf.Approximately(Mathf.Clamp(value, 0f, __instance.Props.fuelCapacity), __instance.TargetFuelLevel);
+        }
+    }
 }

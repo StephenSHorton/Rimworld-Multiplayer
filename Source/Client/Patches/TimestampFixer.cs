@@ -29,42 +29,41 @@ public static class TimestampFixer
         Add((Pawn_GuestTracker guest) => ref guest.lastPrisonBreakTicks);
     }
 
-    public static int? currentOffset;
+    private static readonly List<Thing> tmpHeld = new();
 
     public static void FixPawn(Pawn p, Map oldMap, Map newMap)
     {
         var oldTime = oldMap?.AsyncTime().mapTicks ?? Multiplayer.AsyncWorldTime.worldTicks;
         var newTime = newMap?.AsyncTime().mapTicks ?? Multiplayer.AsyncWorldTime.worldTicks;
-        currentOffset = newTime - oldTime;
+        var offset = newTime - oldTime;
 
         MpLog.Debug($"Fixing pawn timestamps for {p} moving from {oldMap?.ToString() ?? "World"}:{oldTime} to {newMap?.ToString() ?? "World"}:{newTime}");
 
-        try
-        {
-            // Auxiliary save which is used to visit the pawn's data
-            Scribe.saver.DebugOutputFor(p);
-        }
-        finally
-        {
-            currentOffset = null;
-        }
+        // This used to reach the trackers with a debug save of the whole pawn (a deep save per map move or death,
+        // warning "Deep-saving destroyed thing" for the dead). Now the same trackers directly: the pawn's and those
+        // of every pawn it holds (carried, in its inventory), which the deep save reached too. The debug save only
+        // ran outside other saves and loads
+        if (Scribe.mode != LoadSaveMode.Inactive) return;
+
+        Shift(p, offset);
+        ThingOwnerUtility.GetAllThingsRecursively(p, tmpHeld);
+        foreach (var held in tmpHeld)
+            if (held is Pawn heldPawn && heldPawn != p)
+                Shift(heldPawn, offset);
+        tmpHeld.Clear();
     }
 
-    public static void ProcessExposable(IExposable exposable)
+    private static void Shift(Pawn p, int offset)
+    {
+        if (p.mindState != null) Shift(p.mindState, offset);
+        if (p.guest != null) Shift(p.guest, offset);
+    }
+
+    private static void Shift(IExposable exposable, int offset)
     {
         if (timestampFields.TryGetValue(exposable.GetType(), out var fieldGetters))
             foreach (var del in fieldGetters)
-                del(exposable) += currentOffset!.Value;
-    }
-}
-
-[HarmonyPatch(typeof(DebugLoadIDsSavingErrorsChecker), nameof(DebugLoadIDsSavingErrorsChecker.RegisterDeepSaved))]
-static class RegisterDeepSaved_ProcessExposable
-{
-    static void Prefix(object obj)
-    {
-        if (TimestampFixer.currentOffset != null && obj is IExposable exposable)
-            TimestampFixer.ProcessExposable(exposable);
+                del(exposable) += offset;
     }
 }
 
