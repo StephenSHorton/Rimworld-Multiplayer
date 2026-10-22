@@ -45,7 +45,12 @@ namespace Multiplayer.Client
 
             Text.Anchor = TextAnchor.UpperCenter;
             var label = "MpDesynced".Translate();
-            if (MpVersion.IsDebug || Prefs.DevMode) label += "\n" + text;
+            if (MpVersion.IsDebug || Prefs.DevMode)
+            {
+                label += "\n" + text;
+                if (RandAttrReports.ForWindow(desyncInfo.local.startTick) is { } rand)
+                    label += "\n" + rand.packet.summary;
+            }
             else label += "\n" + "MpDesyncedSubtitle".Translate();
             Widgets.Label(new Rect(0, 0, inRect.width, 40), label);
             Text.Anchor = TextAnchor.UpperLeft;
@@ -100,9 +105,11 @@ namespace Multiplayer.Client
 
         public override void WindowUpdate()
         {
-            const float maxWait = 5f;
+            // The host's traces and the referee's Rand attribution diff
+            const float maxWait = 8f;
 
-            var shouldWrite = hostInfo != null || Time.realtimeSinceStartup - openedAt > maxWait;
+            var shouldWrite = (hostInfo != null && RandAttrReports.ForWindow(desyncInfo.local.startTick) != null) ||
+                              Time.realtimeSinceStartup - openedAt > maxWait;
             if (!infoWritten && shouldWrite && desyncInfo.ReadyToSave)
             {
                 desyncInfo.Save(hostInfo);

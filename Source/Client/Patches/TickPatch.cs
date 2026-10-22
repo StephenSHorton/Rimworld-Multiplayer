@@ -214,6 +214,8 @@ namespace Multiplayer.Client
         {
             worked = false;
             SyncVerdicts.Update();
+            Desyncs.RandAttribution.Update();
+            Desyncs.HostDesyncReport.Update();
             updateTimer.Restart();
 
             while (Simulating ? (Timer < simulating.target && updateTimer.ElapsedMilliseconds < 25) : (ticksToRun > 0))

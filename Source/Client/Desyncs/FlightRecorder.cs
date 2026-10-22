@@ -59,6 +59,8 @@ namespace Multiplayer.Client.Desyncs
                 sb.AppendLine($"command rng: {Format(o.commandRandomStates)}");
                 foreach (var f in o.faults ?? [])
                     sb.AppendLine($"error at {f.tick} (map {f.mapId}): {f.text}");
+                foreach (var attr in o.randAttr ?? [])
+                    sb.AppendLine($"rand attribution {RandAttrScope.Name(attr.scope)}: {attr.hash:X16} ({attr.records} records)");
                 foreach (var lane in o.lanes ?? [])
                     sb.AppendLine($"lane {(lane.mapId == -1 ? "world" : "map " + lane.mapId)}/{lane.lane} @ {lane.tick}: {lane.hash:X16}{(lane.hard ? " HARD" : "")}");
             }

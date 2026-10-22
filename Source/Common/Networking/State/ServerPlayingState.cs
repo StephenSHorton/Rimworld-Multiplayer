@@ -224,6 +224,9 @@ namespace Multiplayer.Common
         public void HandleLeaves(ClientLeavesPacket packet) => Server.referee.OnLeaves(Player, packet);
 
         [TypedPacketHandler]
+        public void HandleRandAttr(ClientRandAttrPacket packet) => Server.referee.OnRandAttr(Player, packet);
+
+        [TypedPacketHandler]
         public void HandleFingerprint(Desyncs.ClientFingerprintPacket packet) =>
             Server.referee.OnFingerprint(Player, packet.joinPoint, packet.rows, Server.ArbiterPlaying ? Player.IsArbiter : Player.IsHost);
 

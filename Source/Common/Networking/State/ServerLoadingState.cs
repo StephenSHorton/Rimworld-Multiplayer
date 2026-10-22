@@ -16,6 +16,15 @@ public class ServerLoadingState : AsyncConnectionState
     {
     }
 
+    // A command sent just before the client asked to rejoin (2026-10-22 14:03:52: "No handler for packet
+    // Client_Command in state ServerLoading" disconnected the rejoining player). The game it came from is being
+    // replaced by the join point, so it is dropped
+    [TypedPacketHandler]
+    public void HandleClientCommand(ClientCommandPacket packet)
+    {
+        ServerLog.Log($"Dropped a {packet.type} command from {Player.Username}, who is rejoining");
+    }
+
     [TypedPacketHandler]
     public void HandleClientKeepAlive(ClientKeepAlivePacket packet)
     {

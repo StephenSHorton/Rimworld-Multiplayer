@@ -39,11 +39,20 @@ namespace Multiplayer.Client
         {
             if (!ShouldCollect || currentOpinion == null) return null;
             currentOpinion.roundMode = RoundMode.GetCurrentRoundMode();
+            currentOpinion.randAttr = RandAttribution.TakeWindowHashes();
             var opinion = currentOpinion;
             currentOpinion = null;
             recorder.Record(opinion);
             return opinion;
         }
+
+        /// <summary>The start of the opinion being built (Rand attribution keys its ticks by it).</summary>
+        public int CurrentOpinionStart => ShouldCollect ? OpinionInBuilding.startTick : -1;
+
+        /// <summary>The index the next random state of this list gets (a Rand attribution tick's entry).</summary>
+        public int MapEntryIndex(int mapId) => ShouldCollect ? OpinionInBuilding.GetRandomStatesForMap(mapId).Count : -1;
+        public int WorldEntryIndex => ShouldCollect ? OpinionInBuilding.worldRandomStates.Count : -1;
+        public int CommandEntryIndex => ShouldCollect ? OpinionInBuilding.commandRandomStates.Count : -1;
 
         /// <summary>Adds every state lane at this tick to the opinion being built (see <see cref="SyncLanes"/>).</summary>
         public void TryAddLanes(int tick)
@@ -107,6 +116,8 @@ namespace Multiplayer.Client
             {
                 MpLog.Log($"Desynced after last valid tick {lastValidTick}: {desyncMessage}");
                 Multiplayer.session.desynced = true;
+                // Keep this window's Rand attribution before the ring moves on or a resync reloads
+                RandAttribution.Freeze(oldOpinion.startTick);
                 TickPatch.ClearSimulating();
                 OnMainThread.Enqueue(() => HandleDesync(oldOpinion, newOpinion, desyncMessage));
             }

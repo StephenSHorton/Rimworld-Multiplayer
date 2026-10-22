@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Multiplayer.Common.Desyncs;
 
 namespace Multiplayer.Common.Networking.Packet;
 
@@ -55,6 +56,8 @@ public record struct SyncOpinion : IPacketBufferable
     public List<FaultEvent> faults;
     // State checksums: each names a part of the game (a map's terrain, the world's factions, ...).
     public List<LaneHash> lanes;
+    // Each scope's Rand attribution hash for this window (see RandAttrHash); empty with attribution off
+    public List<RandAttrHash> randAttr;
 
     public void Bind(PacketBuffer buf)
     {
@@ -75,6 +78,8 @@ public record struct SyncOpinion : IPacketBufferable
         lanes ??= [];
         buf.Bind(ref faults, BinderOf.Identity<FaultEvent>());
         buf.Bind(ref lanes, BinderOf.Identity<LaneHash>());
+        randAttr ??= [];
+        buf.Bind(ref randAttr, BinderOf.Identity<RandAttrHash>());
     }
 }
 

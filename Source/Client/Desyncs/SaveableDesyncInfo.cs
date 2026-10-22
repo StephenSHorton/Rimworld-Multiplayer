@@ -45,6 +45,7 @@ public class SaveableDesyncInfo(
             zip.AddEntry("desync_info", GetDesyncDetails());
             zip.AddEntry("lanes.txt", FlightRecorder.CompareLanes(local.ToNet(), remote.ToNet()));
             zip.AddEntry("local_flight_recorder.txt", coordinator.recorder.Dump());
+            RandAttrReports.AddToZip(zip, local.startTick, Multiplayer.username);
             zip.AddEntry("entity_diffs.txt", LeafRequests.recentDiffs.Count > 0
                 ? string.Join("\n\n", LeafRequests.recentDiffs)
                 : "No entity diffs: no lane differed in time for the server to compare entities");

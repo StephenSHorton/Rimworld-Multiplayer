@@ -20,7 +20,11 @@ public record struct ServerSyncVerdictPacket : IPacket
     /// </summary>
     public string[] saveSections;
 
+    /// <summary>What else the comparison found besides the hard difference: other random states, lanes, errors.</summary>
+    public string[] extra;
+
     public const int MaxSaveSections = 400;
+    public const int MaxExtra = 32;
 
     public void Bind(PacketBuffer buf)
     {
@@ -33,5 +37,7 @@ public record struct ServerSyncVerdictPacket : IPacket
         buf.Bind(ref message, maxLength: 4096);
         saveSections ??= [];
         buf.Bind(ref saveSections, BinderOf.String(), maxLength: MaxSaveSections);
+        extra ??= [];
+        buf.Bind(ref extra, BinderOf.String(), maxLength: MaxExtra);
     }
 }

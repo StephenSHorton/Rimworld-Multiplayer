@@ -16,6 +16,12 @@ public class OpinionVerdict
     public readonly List<string> soft = [];
     // Every lane that differs, hard or soft
     public readonly List<(int mapId, string lane)> laneDiffs = [];
+    // Every random state list that differs (scope: map id, -1 world, -2 commands) and its first differing entry
+    public readonly List<(int scope, int entry)> rngDiffs = [];
+    // Scopes whose Rand attribution hash differs while their random states are equal
+    public readonly List<int> randAttrDiffs = [];
+    // With a hard difference: everything else found (other random states, lanes, errors)
+    public readonly List<string> extra = [];
 
     public bool Clean => hard == null && soft.Count == 0;
 }
@@ -44,38 +50,75 @@ public static class OpinionComparer
             return verdict;
         }
 
+        // Every random state that differs, not only the first: a lane or a second scope that also differs says
+        // whether the state or the code path split first
         for (int i = 0; i < refMaps.Count; i++)
         {
-            var diff = DescribeRandomDiff(refMaps[i].randomStates, otherMaps[i].randomStates);
+            var diff = DescribeRandomDiff(refMaps[i].randomStates, otherMaps[i].randomStates, out var index);
             if (diff != null)
+                AddRngDiff(verdict, refMaps[i].mapId, index, $"Wrong random state on map {refMaps[i].mapId}: {diff}");
+        }
+
+        var worldDiff = DescribeRandomDiff(reference.worldRandomStates, other.worldRandomStates, out var worldIndex);
+        if (worldDiff != null)
+            AddRngDiff(verdict, RandAttrScope.World, worldIndex, $"Wrong random state for the world: {worldDiff}");
+
+        var cmdDiff = DescribeRandomDiff(reference.commandRandomStates, other.commandRandomStates, out var cmdIndex);
+        if (cmdDiff != null)
+            AddRngDiff(verdict, RandAttrScope.Commands, cmdIndex, $"Random state from commands doesn't match: {cmdDiff}");
+
+        int softBefore = verdict.soft.Count;
+        CompareLanes(reference.lanes ?? [], other.lanes ?? [], verdict);
+        CompareFaults(reference.faults ?? [], other.faults ?? [], verdict);
+        CompareRandAttr(reference.randAttr ?? [], other.randAttr ?? [], verdict);
+
+        if (verdict.rngDiffs.Count > 0)
+        {
+            // With a random state difference, the rest is context for the hard message, not a warning of its own
+            verdict.extra.AddRange(verdict.soft.Skip(softBefore));
+            if (verdict.extra.Count > 0)
             {
-                verdict.hard = $"Wrong random state on map {refMaps[i].mapId}: {diff}";
-                verdict.hardLane = "rng";
-                verdict.hardMapId = refMaps[i].mapId;
-                return verdict;
+                var also = string.Join("; ", verdict.extra.Take(3));
+                if (also.Length > 600) also = also.Substring(0, 600) + "...";
+                verdict.hard += $"; also: {also}" + (verdict.extra.Count > 3 ? $" (and {verdict.extra.Count - 3} more)" : "");
             }
         }
 
-        var worldDiff = DescribeRandomDiff(reference.worldRandomStates, other.worldRandomStates);
-        if (worldDiff != null)
-        {
-            verdict.hard = $"Wrong random state for the world: {worldDiff}";
-            verdict.hardLane = "rng";
-            return verdict;
-        }
-
-        var cmdDiff = DescribeRandomDiff(reference.commandRandomStates, other.commandRandomStates);
-        if (cmdDiff != null)
-        {
-            verdict.hard = $"Random state from commands doesn't match: {cmdDiff}";
-            verdict.hardLane = "rng";
-            return verdict;
-        }
-
-        CompareLanes(reference.lanes ?? [], other.lanes ?? [], verdict);
-        CompareFaults(reference.faults ?? [], other.faults ?? [], verdict);
-
         return verdict;
+    }
+
+    private static void AddRngDiff(OpinionVerdict verdict, int scope, int entry, string message)
+    {
+        verdict.rngDiffs.Add((scope, entry));
+        if (verdict.hard == null)
+        {
+            verdict.hard = message;
+            verdict.hardLane = "rng";
+            verdict.hardMapId = scope >= 0 ? scope : -1;
+        }
+        else
+        {
+            verdict.extra.Add(message);
+        }
+    }
+
+    /// <summary>
+    /// Equal random states but a different attribution hash: the same number of calls made by different code (one
+    /// more on one pawn and one less on another). Soft. Only scopes both games hashed count, and a random state
+    /// difference makes this redundant.
+    /// </summary>
+    private static void CompareRandAttr(List<RandAttrHash> reference, List<RandAttrHash> other, OpinionVerdict verdict)
+    {
+        if (verdict.rngDiffs.Count > 0) return;
+        foreach (var mine in reference)
+        {
+            int at = other.FindIndex(o => o.scope == mine.scope);
+            if (at < 0) continue;
+            var theirs = other[at];
+            if (theirs.hash == mine.hash) continue;
+            verdict.randAttrDiffs.Add(mine.scope);
+            verdict.soft.Add($"{RandAttrScope.Name(mine.scope)} Rand attribution differs (same random state; {mine.records} vs {theirs.records} records)");
+        }
     }
 
     private static void CompareLanes(List<LaneHash> reference, List<LaneHash> other, OpinionVerdict verdict)
@@ -129,14 +172,19 @@ public static class OpinionComparer
     }
 
     /// <summary>Null if equal; otherwise where and how two lists of Rand states first differ.</summary>
-    public static string? DescribeRandomDiff(List<ulong>? a, List<ulong>? b)
+    public static string? DescribeRandomDiff(List<ulong>? a, List<ulong>? b) => DescribeRandomDiff(a, b, out _);
+
+    /// <summary>As above; <paramref name="index"/> is the first entry that differs (or the shorter count).</summary>
+    public static string? DescribeRandomDiff(List<ulong>? a, List<ulong>? b, out int index)
     {
+        index = -1;
         a ??= [];
         b ??= [];
         int n = System.Math.Min(a.Count, b.Count);
         for (int i = 0; i < n; i++)
         {
             if (a[i] == b[i]) continue;
+            index = i;
             uint seedA = (uint)a[i], seedB = (uint)b[i];
             uint callsA = (uint)(a[i] >> 32), callsB = (uint)(b[i] >> 32);
             return seedA != seedB
@@ -144,6 +192,8 @@ public static class OpinionComparer
                 : $"entry {i}: {callsA} vs {callsB} random calls";
         }
 
-        return a.Count != b.Count ? $"{a.Count} vs {b.Count} entries" : null;
+        if (a.Count == b.Count) return null;
+        index = n;
+        return $"{a.Count} vs {b.Count} entries";
     }
 }

@@ -129,6 +129,7 @@ namespace Multiplayer.Client
             {
                 MpLog.Log($"Sync lanes: {statSum / statCount:F2} ms average, {statMax:F2} ms max over {statCount} checkpoints ({mapLanes.Count} map lanes x {maps.Count} maps, {worldLanes.Count} world lanes); " +
                           "slowest: " + string.Join(", ", laneMaxMs.OrderByDescending(kv => kv.Value).Take(5).Select(kv => $"{kv.Key} {kv.Value:F2} ms")));
+                MpLog.Log(Desyncs.RandAttribution.StatsLine());
                 laneMaxMs.Clear();
                 statCount = 0;
                 statSum = statMax = 0;

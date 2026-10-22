@@ -214,6 +214,20 @@ namespace Multiplayer.Client
             File.WriteAllBytes($"game_{Multiplayer.username}.xml", data);
         }
 
+        // Synced like the other Multiplayer actions, so every game clears its watch
+        [DebugAction(MultiplayerCategory, "Clear Rand watch", allowedGameStates = AllowedGameStates.Playing)]
+        public static void ClearRandWatch() => Desyncs.RandWatch.Clear("debug action");
+
+        [DebugAction(MultiplayerLocalCategory, name = "Write Rand attribution table", allowedGameStates = AllowedGameStates.Playing)]
+        public static void WriteRandAttributionTable()
+        {
+            var window = Multiplayer.game.sync.recorder.Opinions().LastOrDefault().startTick;
+            var path = Path.Combine(Multiplayer.DesyncsDir, $"randtable-{Multiplayer.username}-{window}.txt");
+            Directory.CreateDirectory(Multiplayer.DesyncsDir);
+            File.WriteAllText(path, Desyncs.RandAttribution.StatsReport() + "\n" + Desyncs.RandAttribution.WindowTable(window));
+            Log.Message($"Rand attribution table of window {window} written to {path}");
+        }
+
         [DebugAction(MultiplayerLocalCategory, name = "Trigger desync", allowedGameStates = AllowedGameStates.Playing)]
         public static void TriggerDesync()
         {

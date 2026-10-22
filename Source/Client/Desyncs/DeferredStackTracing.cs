@@ -30,7 +30,25 @@ namespace Multiplayer.Client.Desyncs
         private static bool SupportsDeferredStackTracing =>
             RuntimeInformation.ProcessArchitecture is Architecture.X64 or Architecture.X86;
 
-        public static void Postfix()
+        /// <summary>
+        /// The postfix on Rand.Value and Rand.Int. Rand attribution's two checks come first and apart from the desync
+        /// traces (off by default): a call off the main thread while a scope is recorded, and the armed watch.
+        /// </summary>
+        [HarmonyPostfix]
+        public static void RandPostfix()
+        {
+            if (RandAttribution.active && System.Environment.CurrentManagedThreadId != RandAttribution.mainThreadId)
+                RandAttribution.OffThread();
+            if (RandAttribution.watchArmed)
+                RandAttribution.OnWatchedCall();
+            TraceCore(0);
+        }
+
+        /// <summary>Records a desync trace (Rand calls, ids, spawns) when desync tracing is on.</summary>
+        public static void Trace() => TraceCore(0);
+
+        // Both callers (RandPostfix, Trace) sit one frame above this; extraFrames is for any deeper caller
+        private static void TraceCore(int extraFrames)
         {
             if (Native.LmfPtr == 0)
             {
@@ -40,7 +58,7 @@ namespace Multiplayer.Client.Desyncs
                 if (!Native.IsMono && ShouldAddStackTraceForDesyncLog())
                 {
                     if (Multiplayer.settings.desyncTracingMode == DesyncTracingMode.Slow)
-                        ManagedTrace();
+                        ManagedTrace(extraFrames);
                     else
                         ContextTrace();
                 }
@@ -53,7 +71,7 @@ namespace Multiplayer.Client.Desyncs
             var trace = logItem.raw;
             int hash = 0;
             // Skip this (DeferredStackTracing.Postfix) frame. Keeping it in the trace doesn't provide any value.
-            int depth = DeferredStackTracingImpl.TraceImpl(trace, ref hash, skipFrames: 1);
+            int depth = DeferredStackTracingImpl.TraceImpl(trace, ref hash, skipFrames: 2 + extraFrames);
 
             Multiplayer.game.sync.TryAddStackTraceForDesyncLogRaw(logItem, depth, hash);
 
@@ -67,11 +85,11 @@ namespace Multiplayer.Client.Desyncs
 
         private static Dictionary<MethodBase, int> managedNameHashes = new();
 
-        private static void ManagedTrace()
+        private static void ManagedTrace(int extraFrames)
         {
             var logItem = StackTraceLogItemManaged.GetFromPool();
             // Skip this frame and Postfix, like the Mono walk skips Postfix
-            var frames = new StackTrace(2, false).GetFrames();
+            var frames = new StackTrace(3 + extraFrames, false).GetFrames();
             int hash = 0;
             int depth = 0;
 
@@ -120,7 +138,7 @@ namespace Multiplayer.Client.Desyncs
     {
         static void Postfix()
         {
-            DeferredStackTracing.Postfix();
+            DeferredStackTracing.Trace();
         }
     }
 
@@ -130,7 +148,7 @@ namespace Multiplayer.Client.Desyncs
         static void Postfix(Thing __instance)
         {
             if (__instance.def.HasThingIDNumber)
-                DeferredStackTracing.Postfix();
+                DeferredStackTracing.Trace();
         }
     }
 
@@ -140,7 +158,7 @@ namespace Multiplayer.Client.Desyncs
         static void Postfix(Thing __instance)
         {
             if (__instance.def.HasThingIDNumber)
-                DeferredStackTracing.Postfix();
+                DeferredStackTracing.Trace();
         }
     }
 

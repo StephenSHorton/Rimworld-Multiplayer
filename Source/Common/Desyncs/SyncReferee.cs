@@ -209,6 +209,10 @@ public class SyncReferee
         // An answer from before the resync would be compared with one from after it
         foreach (var id in leafRequests.Values.Where(r => r.otherPlayer == player.id).Select(r => r.id).ToList())
             leafRequests.Remove(id);
+        foreach (var key in lastRandAttrRequest.Keys.Where(k => k.Item1 == player.id).ToList())
+            lastRandAttrRequest.Remove(key);
+        foreach (var id in randAttrRequests.Values.Where(r => r.otherPlayer == player.id).Select(r => r.id).ToList())
+            randAttrRequests.Remove(id);
     }
 
     private void Judge(ServerPlayer player, SyncOpinion refOpinion, SyncOpinion opinion)
@@ -226,6 +230,18 @@ public class SyncReferee
         foreach (var (mapId, lane) in verdict.laneDiffs)
             RequestLeaves(player, mapId, lane);
 
+        // Who made the Rand calls that differ: both games' attribution tables of the first differing entry (and the
+        // one before), or of the whole window when only the attribution hash differs
+        if (verdict.rngDiffs.Count > 0)
+        {
+            var (scope, entry) = verdict.rngDiffs[0];
+            RequestRandAttr(player, scope, opinion.startTick, (short)System.Math.Max(0, entry - 1), (short)System.Math.Max(0, entry));
+        }
+        else if (verdict.randAttrDiffs.Count > 0)
+        {
+            RequestRandAttr(player, verdict.randAttrDiffs[0], opinion.startTick, 0, short.MaxValue);
+        }
+
         if (verdict.hard != null && hardReported.Add(player.id))
         {
             ServerLog.Log($"Sync referee: {player.Username}'s game differs from the reference at tick {opinion.startTick}: {verdict.hard}");
@@ -237,7 +253,8 @@ public class SyncReferee
                 hard = true,
                 lane = verdict.hardLane ?? "",
                 mapId = verdict.hardMapId,
-                message = verdict.hard
+                message = verdict.hard,
+                extra = verdict.extra.Take(ServerSyncVerdictPacket.MaxExtra).Select(e => e.Length > 1000 ? e.Substring(0, 1000) : e).ToArray()
             });
         }
 
@@ -372,6 +389,143 @@ public class SyncReferee
         };
         foreach (var p in new[] { server.GetPlayer(request.refPlayer), other })
             p?.conn.SendFragmented(result.Serialize());
+    }
+
+    // --- Rand attribution: who made the Rand calls that differ ---
+
+    private const int RandAttrCooldown = 1800;
+
+    private class RandAttrRequest
+    {
+        public int id;
+        public int scope;
+        public int opinionStart;
+        public short entryFrom, entryTo;
+        public int askedAt;
+        public int refPlayer;
+        public int otherPlayer;
+        public ClientRandAttrPacket? refAnswer;
+        public ClientRandAttrPacket? otherAnswer;
+    }
+
+    private readonly Dictionary<int, RandAttrRequest> randAttrRequests = new();
+    private readonly Dictionary<(int, int), int> lastRandAttrRequest = new();
+    private int nextRandAttrRequest;
+
+    /// <summary>
+    /// Asks the reference game and the player's for their Rand attribution tables of a window they both already
+    /// simulated. Each game answers from what it kept, so unlike the leaves nothing waits for a tick.
+    /// </summary>
+    private void RequestRandAttr(ServerPlayer player, int scope, int opinionStart, short entryFrom, short entryTo)
+    {
+        var key = (player.id, scope);
+        if (lastRandAttrRequest.TryGetValue(key, out var last) && server.gameTimer - last < RandAttrCooldown) return;
+
+        var reference = server.PlayingPlayers.FirstOrDefault(p => server.ArbiterPlaying ? p.IsArbiter : p.IsHost);
+        if (reference == null || reference == player) return;
+
+        lastRandAttrRequest[key] = server.gameTimer;
+        var request = new RandAttrRequest
+        {
+            id = nextRandAttrRequest++,
+            scope = scope,
+            opinionStart = opinionStart,
+            entryFrom = entryFrom,
+            entryTo = entryTo,
+            askedAt = server.gameTimer,
+            refPlayer = reference.id,
+            otherPlayer = player.id
+        };
+        randAttrRequests[request.id] = request;
+
+        var packet = new ServerRandAttrRequestPacket
+            { requestId = request.id, scope = scope, opinionStart = opinionStart, entryFrom = entryFrom, entryTo = entryTo };
+        reference.SendPacket(packet);
+        player.SendPacket(packet);
+
+        foreach (var stale in randAttrRequests.Values.Where(r => server.gameTimer - r.askedAt > 2 * RandAttrCooldown).Select(r => r.id).ToList())
+            randAttrRequests.Remove(stale);
+    }
+
+    public void OnRandAttr(ServerPlayer player, ClientRandAttrPacket packet)
+    {
+        if (!randAttrRequests.TryGetValue(packet.requestId, out var request)) return;
+
+        if (player.id == request.refPlayer) request.refAnswer = packet;
+        else if (player.id == request.otherPlayer) request.otherAnswer = packet;
+        else return;
+
+        if (request.refAnswer is not { } refAnswer || request.otherAnswer is not { } otherAnswer) return;
+        randAttrRequests.Remove(request.id);
+
+        var refName = server.GetPlayer(request.refPlayer)?.Username ?? "host";
+        var other = server.GetPlayer(request.otherPlayer);
+        var otherName = other?.Username ?? "player";
+
+        var result = BuildRandAttrDiff(request.scope, request.opinionStart, request.entryTo, refAnswer, otherAnswer, refName, otherName);
+        result.playerId = request.otherPlayer;
+        result.username = otherName;
+
+        ServerLog.Log($"Sync referee: [RandAttr] {refName} vs {otherName}: {result.summary}");
+        var bytes = result.Serialize();
+        foreach (var p in new[] { server.GetPlayer(request.refPlayer), other })
+            p?.conn.SendFragmented(bytes);
+    }
+
+    /// <summary>The diff of two games' answers, with the summary line and the watch to arm. Public for the tests.</summary>
+    public static ServerRandAttrDiffPacket BuildRandAttrDiff(int scope, int opinionStart, short entry, ClientRandAttrPacket refAnswer,
+        ClientRandAttrPacket otherAnswer, string refName, string otherName)
+    {
+        var result = new ServerRandAttrDiffPacket
+        {
+            scope = scope,
+            opinionStart = opinionStart,
+            entry = entry
+        };
+
+        if (refAnswer.missed || otherAnswer.missed)
+        {
+            var who = refAnswer.missed ? refName : otherName;
+            result.summary = $"{RandAttrScope.Name(scope)} window {opinionStart}: could not compare Rand attribution, " +
+                             $"{who}'s game no longer had that window (or has attribution off)";
+            result.gzDiff = LeafDiff.Gzip(result.summary);
+            return result;
+        }
+
+        var refTable = LeafDiff.Gunzip(refAnswer.gzTable);
+        var otherTable = LeafDiff.Gunzip(otherAnswer.gzTable);
+        var diff = RandAttrDiff.Diff(refTable, otherTable, refName, otherName, scope, opinionStart);
+        var summary = diff.summary;
+        var stackDiff = "";
+
+        if (diff.differs)
+        {
+            var call = RandAttrDiff.FirstDifferingCall(LeafDiff.Gunzip(refAnswer.gzStacks), LeafDiff.Gunzip(otherAnswer.gzStacks),
+                diff.entry, diff.refUnitOrdinal, diff.otherUnitOrdinal, refName, otherName, out stackDiff);
+            if (call != null) summary += "; " + call;
+            result.entry = (short)diff.entry;
+            result.ticksGame = diff.ticksGame;
+
+            if (diff.watchLine is { } w && w.kind != nameof(RandAttrKind.BetweenTicks) && w.kind != nameof(RandAttrKind.Overflow) &&
+                w.kind != nameof(RandAttrKind.Reseed))
+            {
+                result.watchKind = w.kind;
+                result.watchDef = w.def;
+                result.watchMethod = w.method;
+                result.watchBase = w.basePhase;
+                result.watchPhase = diff.watchPhase ? w.phase : "";
+                result.watchJob = w.job;
+                result.watchOwner = w.kind == nameof(RandAttrKind.Thing) ? w.owner : "";
+            }
+        }
+
+        if (summary.Length > 1000) summary = summary.Substring(0, 1000) + "...";
+        result.summary = summary;
+        result.gzDiff = LeafDiff.Gzip(diff.text);
+        result.gzRefTable = refAnswer.gzTable;
+        result.gzOtherTable = otherAnswer.gzTable;
+        result.gzStackDiff = LeafDiff.Gzip(stackDiff);
+        return result;
     }
 
     private void Send(ServerPlayer player, ServerSyncVerdictPacket packet)

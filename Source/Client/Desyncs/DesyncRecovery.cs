@@ -101,7 +101,8 @@ namespace Multiplayer.Client.Desyncs
     /// </summary>
     public class DesyncOverlayWindow : Window
     {
-        private const float MaxWaitForHost = 5f;
+        // The host's traces and the referee's Rand attribution diff
+        private const float MaxWaitForHost = 8f;
 
         private readonly string message;
         private readonly SaveableDesyncInfo info;
@@ -110,7 +111,7 @@ namespace Multiplayer.Client.Desyncs
         [CanBeNull] private SaveableDesyncInfo.HostInfo hostInfo;
         private bool done;
 
-        public override Vector2 InitialSize => new(560, 80);
+        public override Vector2 InitialSize => new(560, 110);
 
         public DesyncOverlayWindow(string message, SaveableDesyncInfo info, DesyncRecovery.Step step)
         {
@@ -142,9 +143,13 @@ namespace Multiplayer.Client.Desyncs
             var what = step == DesyncRecovery.Step.RestartProcess
                 ? "Out of sync again. Restarting RimWorld and rejoining"
                 : "Out of sync with the host. Re-syncing";
-            Widgets.Label(inRect.TopHalf(), what + MpUI.FixedEllipsis());
+            var third = inRect.height / 3f;
+            Widgets.Label(new Rect(inRect.x, inRect.y, inRect.width, third), what + MpUI.FixedEllipsis());
             Text.Font = GameFont.Tiny;
-            Widgets.Label(inRect.BottomHalf(), message.Length > 110 ? message.Substring(0, 110) + "..." : message);
+            Widgets.Label(new Rect(inRect.x, inRect.y + third, inRect.width, third), message.Length > 110 ? message.Substring(0, 110) + "..." : message);
+            var rand = RandAttrReports.ForWindow(info.local.startTick)?.packet.summary;
+            Widgets.Label(new Rect(inRect.x, inRect.y + 2 * third, inRect.width, third),
+                rand == null ? "Waiting for the Rand attribution diff" + MpUI.FixedEllipsis() : rand.Length > 140 ? rand.Substring(0, 140) + "..." : rand);
             Text.Font = GameFont.Small;
             Text.Anchor = TextAnchor.UpperLeft;
         }
@@ -154,7 +159,8 @@ namespace Multiplayer.Client.Desyncs
             if (done) return;
 
             var waited = Time.realtimeSinceStartup - openedAt;
-            if ((hostInfo == null && waited < MaxWaitForHost) || !info.ReadyToSave) return;
+            bool haveRand = RandAttrReports.ForWindow(info.local.startTick) != null;
+            if (((hostInfo == null || !haveRand) && waited < MaxWaitForHost) || !info.ReadyToSave) return;
 
             done = true;
             info.Save(hostInfo);

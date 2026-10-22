@@ -81,8 +81,13 @@ namespace Multiplayer.Client
             if (packet.hard)
             {
                 MpLog.Warn($"Sync referee: {who} differs from the host's at tick {packet.tick}: {packet.message}");
+                foreach (var extra in packet.extra ?? [])
+                    MpLog.Warn($"Sync referee: also at tick {packet.tick}: {extra}");
                 if (!aboutMe)
                 {
+                    // The host writes its own report too, with its Rand attribution table and the referee's diff
+                    if (Multiplayer.LocalServer != null)
+                        Desyncs.HostDesyncReport.OnHardVerdict(packet);
                     Messages.Message($"{who} no longer matches yours (tick {packet.tick}): {packet.message}. They re-sync on their own.",
                         MessageTypeDefOf.NegativeEvent, false);
                     RememberSpeedsUntilBack(packet.playerId);

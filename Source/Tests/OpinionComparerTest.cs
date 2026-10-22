@@ -71,6 +71,45 @@ public class OpinionComparerTest
     }
 
     [Test]
+    public void RandomStateDifferenceStillReportsLanesAndOtherScopes()
+    {
+        var a = Opinion(0x0000000500000007UL);
+        var b = Opinion(0x0000000600000007UL);
+        b.worldRandomStates = [3];
+        a.lanes = [new LaneHash { tick = 330, mapId = 0, lane = "pawns", hash = 1, hard = false }];
+        b.lanes = [new LaneHash { tick = 330, mapId = 0, lane = "pawns", hash = 2, hard = false }];
+
+        var verdict = OpinionComparer.Compare(a, b);
+        Assert.That(verdict.hardLane, Is.EqualTo("rng"));
+        Assert.That(verdict.rngDiffs, Is.EqualTo(new List<(int, int)> { (0, 0), (RandAttrScope.World, 0) }));
+        Assert.That(verdict.laneDiffs, Has.Count.EqualTo(1));
+        Assert.That(verdict.hard, Does.StartWith("Wrong random state on map 0").And.Contain("also:").And.Contain("map 0 / pawns lane differs"));
+        Assert.That(verdict.extra, Has.Some.Contains("for the world"));
+    }
+
+    [Test]
+    public void AttributionDifferenceWithEqualStatesIsSoft()
+    {
+        var a = Opinion();
+        var b = Opinion();
+        a.randAttr = [new RandAttrHash { scope = 0, hash = 11, records = 4 }];
+        b.randAttr = [new RandAttrHash { scope = 0, hash = 12, records = 4 }];
+
+        var verdict = OpinionComparer.Compare(a, b);
+        Assert.That(verdict.hard, Is.Null);
+        Assert.That(verdict.randAttrDiffs, Is.EqualTo(new List<int> { 0 }));
+        Assert.That(verdict.soft, Has.Some.Contains("map 0 Rand attribution differs (same random state"));
+    }
+
+    [Test]
+    public void AttributionOnOneGameOnlyIsNoDifference()
+    {
+        var a = Opinion();
+        a.randAttr = [new RandAttrHash { scope = 0, hash = 11, records = 4 }];
+        Assert.That(OpinionComparer.Compare(a, Opinion()).Clean, Is.True);
+    }
+
+    [Test]
     public void FaultSignatureIgnoresNumbersAndStacks()
     {
         var a = FaultSignature.Normalize("Exception ticking Pawn1234: NullReferenceException\n   at Foo.Bar() 0x0001");

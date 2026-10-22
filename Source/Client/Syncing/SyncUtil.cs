@@ -42,6 +42,7 @@ namespace Multiplayer.Client
             try
             {
                 handler = Sync.handlers[syncId];
+                Desyncs.RandAttrPhases.SyncHandler(syncId, handler);
             }
             catch (ArgumentOutOfRangeException)
             {

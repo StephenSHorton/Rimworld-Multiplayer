@@ -145,7 +145,8 @@ public class PacketTest
             simulating = true,
             roundMode = RoundModeEnum.ToNearest,
             faults = [new FaultEvent { tick = 12346, mapId = 1, signature = 42, text = "Exception ticking #" }],
-            lanes = [new LaneHash { tick = 12350, mapId = -1, lane = "factions", hash = 0xDEADBEEFCAFEUL, hard = true }]
+            lanes = [new LaneHash { tick = 12350, mapId = -1, lane = "factions", hash = 0xDEADBEEFCAFEUL, hard = true }],
+            randAttr = [new Multiplayer.Common.Desyncs.RandAttrHash { scope = 1, hash = 0x0123456789ABCDEFUL, records = 212 }]
         };
 
         yield return new ClientSyncInfoPacket { SyncOpinion = sampleOpinion };
@@ -155,7 +156,21 @@ public class PacketTest
         {
             playerId = 2, username = "Blake", tick = 12345, hard = true, lane = "rng", mapId = 1,
             message = "Wrong random state on map 1: entry 3: 10 vs 11 random calls",
-            saveSections = ["game/tickManager", "map 0/things"]
+            saveSections = ["game/tickManager", "map 0/things"],
+            extra = ["map 1 / pawns lane differs at tick 12330"]
+        };
+
+        yield return new ServerRandAttrRequestPacket { requestId = 3, scope = 1, opinionStart = 366901, entryFrom = 7, entryTo = 8 };
+        yield return new ClientRandAttrPacket
+            { requestId = 3, missed = false, gzTable = "e8 #0 Root"u8.ToArray(), gzStacks = "cap e8 u0 c1"u8.ToArray(), offThreadCalls = 2 };
+        yield return new ClientRandAttrPacket { requestId = 4, missed = true, gzTable = [], gzStacks = [] };
+        yield return new ServerRandAttrDiffPacket
+        {
+            playerId = 2, username = "Blake", scope = 1, opinionStart = 366901, entry = 8, ticksGame = 366909,
+            summary = "map 1 tick 366909 (window 366901 entry 8): Human1234 made 3 Rand calls on host, 4 on Blake (+1 on Blake)",
+            gzDiff = [1, 2], gzRefTable = [3], gzOtherTable = [4], gzStackDiff = [],
+            watchKind = "Thing", watchDef = "Human", watchMethod = "TickInterval", watchBase = "-", watchPhase = "",
+            watchJob = "Wait_Combat", watchOwner = "Human1234"
         };
 
         yield return new ClientSetFactionPacket(123, 123);

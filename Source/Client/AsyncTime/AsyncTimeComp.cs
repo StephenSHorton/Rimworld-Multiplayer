@@ -94,6 +94,11 @@ namespace Multiplayer.Client
         // Shared random state for ticking and commands
         public ulong randState;
 
+        // The random state at the end of this map's last recorded tick or command (Rand attribution's between-ticks
+        // check); unknown after a load, since this comp is made anew
+        private ulong attrLastEnd;
+        private bool attrLastEndKnown;
+
         public Queue<ScheduledCommand> cmds = new();
 
         public int CurrentPlayerCount { get; private set; }
@@ -114,6 +119,8 @@ namespace Multiplayer.Client
             CheckNoContextOpen($"map {map.uniqueID}'s tick");
             tickingMap = map;
             PreContext();
+            Desyncs.RandAttribution.Begin(map.uniqueID, Multiplayer.game.sync.MapEntryIndex(map.uniqueID), Desyncs.RandAttrPhases.PreTick,
+                attrLastEnd, attrLastEndKnown);
 
             //SimpleProfiler.Start();
 
@@ -127,29 +134,45 @@ namespace Multiplayer.Client
                 //ForeCompeleScheduledJobs here can prevent all Multithread Races,
                 //but also force pathfinder to be done before tick runing
                 //PathFinderPatch is the other way try to snapshot everything worker threads are using
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.PathFinderJobs);
                 map.pathFinder.ForceCompleteScheduledJobs();
 
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.TickListNormal);
                 tickListNormal.Tick();
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.TickListRare);
                 tickListRare.Tick();
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.TickListLong);
                 tickListLong.Tick();
 
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.Sessions);
                 TickMapSessions();
 
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.Storyteller);
                 Find.Storyteller.StorytellerTick();
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.StoryWatcher);
                 Find.StoryWatcher.StoryWatcherTick();
 
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.Quests);
                 QuestManagerTickAsyncTime();
 
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.PostTick);
                 map.MapPostTick();
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.PostTickVisuals);
                 Find.TickManager.ticksThisFrame = 1;
                 map.postTickVisuals.ProcessPostTickVisuals();
                 Find.TickManager.ticksThisFrame = 0;
 
+                Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.UpdateManagers);
                 UpdateManagers();
                 CacheNothingHappening();
             }
             finally
             {
+                if (Desyncs.RandAttribution.active)
+                {
+                    attrLastEnd = Desyncs.RandAttribution.End();
+                    attrLastEndKnown = true;
+                }
                 PostContext();
                 Multiplayer.game.sync.TryAddMapRandomState(map.uniqueID, randState);
                 eventCount++;
@@ -301,6 +324,8 @@ namespace Multiplayer.Client
             CheckNoContextOpen($"a {cmdType} command on map {map.uniqueID}");
             PreContext();
             map.PushFaction(cmd.GetFaction(), force: true);
+            Desyncs.RandAttribution.Begin(global::Multiplayer.Common.Desyncs.RandAttrScope.Commands, Multiplayer.game.sync.CommandEntryIndex,
+                Desyncs.RandAttrPhases.Command(cmdType), attrLastEnd, attrLastEndKnown);
 
             context.map = map;
 
@@ -359,6 +384,11 @@ namespace Multiplayer.Client
 
                 Find.MainButtonsRoot.tabs.Notify_SelectedObjectDespawned();
 
+                if (Desyncs.RandAttribution.active)
+                {
+                    attrLastEnd = Desyncs.RandAttribution.End();
+                    attrLastEndKnown = true;
+                }
                 map.PopFaction();
                 PostContext();
 

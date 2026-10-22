@@ -95,6 +95,8 @@ namespace Multiplayer.Client
             using (DeepProfilerWrapper.Section("Multiplayer MpPatches"))
                 Multiplayer.harmony.DoAllMpPatches();
 
+            Desyncs.RandAttribution.Init();
+
             using (DeepProfilerWrapper.Section("Multiplayer patches"))
                 DoPatches();
 
@@ -360,7 +362,9 @@ namespace Multiplayer.Client
 
             // Set ThingContext and FactionContext (for pawns and buildings) in common Thing methods
             {
-                var thingMethodPrefix = new HarmonyMethod(typeof(ThingMethodPatches).GetMethod(nameof(ThingMethodPatches.Prefix)));
+                // One prefix per method: each passes its Rand attribution method kind as a constant
+                var thingMethodPrefixes = new[] { "Tick", "TickRare", "TickLong", "TickInterval", "TakeDamage", "Kill" }
+                    .ToDictionary(m => m, m => new HarmonyMethod(typeof(ThingMethodPatches).GetMethod(ThingMethodPatches.PrefixFor(m))));
                 var thingMethodFinalizer = new HarmonyMethod(typeof(ThingMethodPatches).GetMethod(nameof(ThingMethodPatches.Finalizer)));
                 var thingMethodPrefixSpawnSetup = new HarmonyMethod(typeof(ThingMethodPatches).GetMethod(nameof(ThingMethodPatches.Prefix_SpawnSetup)));
 
@@ -385,14 +389,19 @@ namespace Multiplayer.Client
                     {
                         MethodInfo method = t.GetMethod(m, BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly | BindingFlags.NonPublic, null, args, null);
                         if (method != null)
-                            TryPatch(method, thingMethodPrefix, finalizer: thingMethodFinalizer);
+                            TryPatch(method, thingMethodPrefixes[m], finalizer: thingMethodFinalizer);
                     }
                 }
             }
 
             // Set FactionContext in common WorldObject methods
             {
-                var prefix = new HarmonyMethod(typeof(WorldObjectMethodPatches).GetMethod(nameof(WorldObjectMethodPatches.Prefix)));
+                var prefixes = new Dictionary<string, HarmonyMethod>
+                {
+                    ["SpawnSetup"] = new(typeof(WorldObjectMethodPatches).GetMethod(nameof(WorldObjectMethodPatches.Prefix_SpawnSetup))),
+                    ["Tick"] = new(typeof(WorldObjectMethodPatches).GetMethod(nameof(WorldObjectMethodPatches.Prefix_Tick))),
+                    ["TickInterval"] = new(typeof(WorldObjectMethodPatches).GetMethod(nameof(WorldObjectMethodPatches.Prefix_TickInterval))),
+                };
                 var finalizer = new HarmonyMethod(typeof(WorldObjectMethodPatches).GetMethod(nameof(WorldObjectMethodPatches.Finalizer)));
 
                 var thingMethods = new[]
@@ -408,10 +417,23 @@ namespace Multiplayer.Client
                     {
                         MethodInfo method = t.GetMethod(m, BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly | BindingFlags.NonPublic, null, args, null);
                         if (method != null)
-                            TryPatch(method, prefix, finalizer: finalizer);
+                            TryPatch(method, prefixes[m], finalizer: finalizer);
                     }
                 }
             }
+
+            SetCategory("Rand attribution");
+
+            // Rand attribution boundaries beyond things: map systems, components, lords, quests, incidents, tier 2
+            Desyncs.RandAttrPatches.Apply((original, prefix, postfix) =>
+            {
+                if (original == null)
+                {
+                    LogError("FAIL: a Rand attribution target method is missing");
+                    return;
+                }
+                TryPatch(original, prefix, postfix);
+            });
 
             // Full precision floating point saving
             {

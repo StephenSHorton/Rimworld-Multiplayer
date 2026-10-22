@@ -179,6 +179,14 @@ namespace Multiplayer.Client
             OnMainThread.Enqueue(() => Desyncs.LeafRequests.OnDiff(packet));
 
         [TypedPacketHandler]
+        public void HandleRandAttrRequest(ServerRandAttrRequestPacket packet) =>
+            OnMainThread.Enqueue(() => Desyncs.RandAttribution.Answer(packet));
+
+        [TypedPacketHandler]
+        public void HandleRandAttrDiff(ServerRandAttrDiffPacket packet) =>
+            OnMainThread.Enqueue(() => Desyncs.RandAttrReports.OnDiff(packet));
+
+        [TypedPacketHandler]
         public void HandleDesyncCheck(ServerSyncInfoPacket packet) =>
             Multiplayer.game?.sync.AddClientOpinionAndCheckDesync(ClientSyncOpinion.FromNet(packet.SyncOpinion));
 

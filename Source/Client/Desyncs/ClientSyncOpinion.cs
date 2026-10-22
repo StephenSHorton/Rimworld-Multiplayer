@@ -20,6 +20,7 @@ namespace Multiplayer.Client
         public List<MapRandomStateData> mapStates = new();
         public List<FaultEvent> faults = new();
         public List<LaneHash> lanes = new();
+        public List<RandAttrHash> randAttr = new();
 
         // Serialized only after a desync to reduce bandwidth usage in regular gameplay (only the hashes are used) and
         // help with debugging in case something goes wrong.
@@ -81,7 +82,8 @@ namespace Multiplayer.Client
             simulating = sync.simulating,
             roundMode = sync.roundMode,
             faults = sync.faults ?? [],
-            lanes = sync.lanes ?? []
+            lanes = sync.lanes ?? [],
+            randAttr = sync.randAttr ?? []
         };
 
         public SyncOpinion ToNet() => new()
@@ -95,7 +97,8 @@ namespace Multiplayer.Client
             simulating = simulating,
             roundMode = roundMode,
             faults = faults,
-            lanes = lanes
+            lanes = lanes,
+            randAttr = randAttr
         };
 
         public static ClientSyncOpinion Deserialize(ByteReader data) =>

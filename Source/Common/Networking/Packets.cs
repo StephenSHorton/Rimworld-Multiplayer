@@ -39,6 +39,7 @@ public enum Packets : byte
     Client_Leaves,
     Client_Fingerprint,
     Client_HostTimer,
+    Client_RandAttr,
 
     // Joining
     Server_ProtocolOk,
@@ -70,6 +71,8 @@ public enum Packets : byte
     Server_SyncVerdict,
     Server_LeafRequest,
     Server_LeafDiff,
+    Server_RandAttrRequest,
+    Server_RandAttrDiff,
 
     // All states (Joining, Loading, Playing)
     Server_Disconnect,

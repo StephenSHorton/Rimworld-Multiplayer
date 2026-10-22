@@ -66,6 +66,10 @@ public class AsyncWorldTimeComp : IExposable, ITickable
     public World world;
     public ulong randState;
 
+    // The random state at the end of the world's last recorded tick or command (Rand attribution)
+    private ulong attrLastEnd;
+    private bool attrLastEndKnown;
+
     /// <summary>
     /// The world's clock: its tick count, its game start tick and its time slower, which the tick manager holds
     /// whenever no map's context is open (a map's context switches the tick manager to the map's and back). They are
@@ -136,13 +140,17 @@ public class AsyncWorldTimeComp : IExposable, ITickable
     {
         tickingWorld = true;
         PreContext();
+        Desyncs.RandAttribution.Begin(global::Multiplayer.Common.Desyncs.RandAttrScope.World, Multiplayer.game.sync.WorldEntryIndex,
+            Desyncs.RandAttrPhases.WorldTick, attrLastEnd, attrLastEndKnown);
 
         try
         {
             Find.TickManager.DoSingleTick();
             worldTicks++;
+            Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.WorldSessions);
             Multiplayer.WorldComp.TickWorldSessions();
 
+            Desyncs.RandAttribution.Phase(Desyncs.RandAttrPhases.WorldUpdate);
             if (ModsConfig.BiotechActive)
             {
                 // Vanilla puts those into a separate try/catch blocks
@@ -166,6 +174,11 @@ public class AsyncWorldTimeComp : IExposable, ITickable
         }
         finally
         {
+            if (Desyncs.RandAttribution.active)
+            {
+                attrLastEnd = Desyncs.RandAttribution.End();
+                attrLastEndKnown = true;
+            }
             PostContext();
             tickingWorld = false;
 
@@ -264,6 +277,8 @@ public class AsyncWorldTimeComp : IExposable, ITickable
 
         PreContext();
         FactionExtensions.PushFaction(null, cmd.GetFaction());
+        Desyncs.RandAttribution.Begin(global::Multiplayer.Common.Desyncs.RandAttrScope.Commands, Multiplayer.game.sync.CommandEntryIndex,
+            Desyncs.RandAttrPhases.Command(cmdType), attrLastEnd, attrLastEndKnown);
 
         bool prevDevMode = Prefs.data.devMode;
         var prevGodMode = DebugSettings.godMode;
@@ -356,6 +371,11 @@ public class AsyncWorldTimeComp : IExposable, ITickable
             MpLog.Debug($"rand calls {DeferredStackTracing.randCalls - randCalls1}");
             MpLog.Debug("rand state " + Rand.StateCompressed);
 
+            if (Desyncs.RandAttribution.active)
+            {
+                attrLastEnd = Desyncs.RandAttribution.End();
+                attrLastEndKnown = true;
+            }
             FactionExtensions.PopFaction();
             PostContext();
             TickPatch.currentExecutingCmdIssuedBySelf = false;
