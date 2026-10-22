@@ -60,8 +60,10 @@ public class SyncReferee
         // After a join point both games have the same save loaded, so every row counts, warn rows too
         var (blocking, warnings) = Fingerprint.Compare(referenceRows, rows, "host", player.Username);
         // Not the Harmony row: mods patch interface and drawing code lazily (Map Preview, Show Me Your Hands), so
-        // two games in sync differ there; in dev mode MpDesyncs/harmony-<player>.txt lists them for diffing
-        blocking.AddRange(warnings.Where(w => !w.StartsWith("Runtime") && !w.StartsWith("Language") && !w.StartsWith("Harmony patches")));
+        // two games in sync differ there. It goes to the log as a warning, not to the players
+        foreach (var line in HarmonyRowWarnings(warnings, player.Username))
+            ServerLog.Log(line);
+        blocking.AddRange(warnings.Where(w => !w.StartsWith("Runtime") && !w.StartsWith("Language") && !w.StartsWith(HarmonyRow)));
         if (blocking.Count == 0) return;
 
         var text = Fingerprint.Describe(blocking, 6);
@@ -86,6 +88,57 @@ public class SyncReferee
             saveSections = sections
         });
     }
+
+    public const string HarmonyRow = "Harmony patches";
+
+    /// <summary>
+    /// The log lines for a Harmony patches row that differs after a join point (a warning, never a desync). The row
+    /// holds a count and a hash; when both values also list the patched methods ("count methods, hash: m1;m2"),
+    /// the lines name the methods only one game patches. In dev mode each game lists its methods in
+    /// MpDesyncs/harmony-[player].txt.
+    /// </summary>
+    public static List<string> HarmonyRowWarnings(IEnumerable<string> warnings, string username)
+    {
+        var lines = new List<string>();
+        foreach (var w in warnings.Where(w => w.StartsWith(HarmonyRow)))
+        {
+            lines.Add($"Sync referee (warning): {username}'s Harmony patches differ from the host's after the join point: {w}. " +
+                      "Diff MpDesyncs/harmony-<player>.txt (dev mode) to see which methods.");
+
+            var (refMethods, otherMethods) = HarmonyMethods(w);
+            if (refMethods == null || otherMethods == null) continue;
+            var onlyRef = refMethods.Except(otherMethods).OrderBy(m => m, System.StringComparer.Ordinal).ToList();
+            var onlyOther = otherMethods.Except(refMethods).OrderBy(m => m, System.StringComparer.Ordinal).ToList();
+            if (onlyRef.Count > 0)
+                lines.Add($"Sync referee (warning): patched only on the host's game: {string.Join("; ", onlyRef.Take(20))}{More(onlyRef)}");
+            if (onlyOther.Count > 0)
+                lines.Add($"Sync referee (warning): patched only on {username}'s game: {string.Join("; ", onlyOther.Take(20))}{More(onlyOther)}");
+        }
+        return lines;
+
+        static string More(List<string> methods) => methods.Count > 20 ? $" and {methods.Count - 20} more" : "";
+    }
+
+    // "Harmony patches: <ref value> (host) vs <other value> (name)"; a value lists methods after ": "
+    private static (HashSet<string>? reference, HashSet<string>? other) HarmonyMethods(string line)
+    {
+        var body = line.Substring(HarmonyRow.Length).TrimStart(':', ' ');
+        var vs = body.IndexOf(" (host) vs ", System.StringComparison.Ordinal);
+        if (vs < 0) return (null, null);
+        var refValue = body.Substring(0, vs);
+        var otherValue = body.Substring(vs + " (host) vs ".Length);
+        var paren = otherValue.LastIndexOf(" (", System.StringComparison.Ordinal);
+        if (paren >= 0) otherValue = otherValue.Substring(0, paren);
+        return (Methods(refValue), Methods(otherValue));
+
+        static HashSet<string>? Methods(string value)
+        {
+            var colon = value.IndexOf(": ", System.StringComparison.Ordinal);
+            if (colon < 0) return null;
+            return new HashSet<string>(value.Substring(colon + 2).Split(new[] { ';' }, System.StringSplitOptions.RemoveEmptyEntries), System.StringComparer.Ordinal);
+        }
+    }
+
     public int Differences { get; private set; }
 
     public void OnOpinion(ServerPlayer player, byte[] raw, bool isReference)
@@ -145,6 +198,17 @@ public class SyncReferee
         pending.Remove(player.id);
         fingerprints.Remove(player.id);
         hardReported.Remove(player.id);
+
+        // After a resync the same difference is news again: report it and ask for its leaves without waiting
+        // out the repeat count or the cooldown
+        var prefix = $"{player.id}|";
+        foreach (var key in softSeen.Keys.Where(k => k.StartsWith(prefix, System.StringComparison.Ordinal)).ToList())
+            softSeen.Remove(key);
+        foreach (var key in lastLeafRequest.Keys.Where(k => k.Item1 == player.id).ToList())
+            lastLeafRequest.Remove(key);
+        // An answer from before the resync would be compared with one from after it
+        foreach (var id in leafRequests.Values.Where(r => r.otherPlayer == player.id).Select(r => r.id).ToList())
+            leafRequests.Remove(id);
     }
 
     private void Judge(ServerPlayer player, SyncOpinion refOpinion, SyncOpinion opinion)

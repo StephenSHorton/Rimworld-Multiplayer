@@ -87,7 +87,7 @@ namespace Multiplayer.Client.Desyncs
             Multiplayer.Client?.SendFragmented(packet.Serialize());
         }
 
-        private static void PruneOldFiles(string pattern, int keep)
+        internal static void PruneOldFiles(string pattern, int keep)
         {
             try
             {
@@ -121,6 +121,7 @@ namespace Multiplayer.Client.Desyncs
             }
 
             PruneOldFiles("leafdiff-*.txt", 60);
+            SteeringLedger.OnLeafDiff(packet.lane, packet.mapId, packet.tick, text);
 
             var example = firstLines.Skip(1).FirstOrDefault(l => l.Length > 0) ?? firstLines.FirstOrDefault();
             Messages.Message($"Sync difference ({where} / {packet.lane}): {example}", MessageTypeDefOf.SilentInput, false);

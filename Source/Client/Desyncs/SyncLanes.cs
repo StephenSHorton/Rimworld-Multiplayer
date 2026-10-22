@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Multiplayer.Client.Util;
+using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Networking.Packet;
 using RimWorld;
 using RimWorld.Planet;
@@ -98,6 +99,7 @@ namespace Multiplayer.Client
         public static void Compute(int tick, List<LaneHash> into)
         {
             watch.Restart();
+            Desyncs.SteeringLedger.Refresh();
 
             var maps = Find.Maps;
             for (int m = 0; m < maps.Count; m++)
@@ -329,6 +331,7 @@ namespace Multiplayer.Client
             h = Mix(h, p.carryTracker?.CarriedThing?.thingIDNumber ?? -1);
             h = Mix(h, p.inventory?.innerContainer?.Count ?? -1);
             h = Mix(h, p.equipment?.Primary?.thingIDNumber ?? -1);
+            h = Mix(h, SteeringHash(p));
 
             ulong hediffs = 0;
             var list = p.health?.hediffSet?.hediffs;
@@ -349,6 +352,77 @@ namespace Multiplayer.Client
                         needs += Mix(Mix(0, need.def), need.curLevelInt);
                 }
             return Mix(h, needs);
+        }
+
+        // What steers a pawn: where it faces, its stance, its path, its lord duty, enemy target and job targets. A leaf
+        // diff naming the first of these that differs says which input sent two games' pawns different ways.
+        private static ulong SteeringHash(Pawn p)
+        {
+            ulong h = Mix(0x57EE, p.rotationInt.AsInt);
+
+            var stance = p.stances?.curStance;
+            h = Mix(h, stance == null ? 0 : TypeHash(stance.GetType()));
+            if (stance is Stance_Busy busy)
+            {
+                h = Mix(h, busy.focusTarg);
+                h = Mix(h, busy.ticksLeft);
+                h = Mix(h, busy.verb?.loadID == null ? 0 : FaultSignature.Hash(busy.verb.loadID));
+            }
+
+            var pather = p.pather;
+            if (pather != null)
+            {
+                h = Mix(h, pather.Moving ? 1 : 0);
+                h = Mix(h, pather.nextCell);
+                h = Mix(h, pather.Destination);
+                h = Mix(h, pather.curPath != null ? 1 : 0);
+            }
+
+            var duty = p.mindState?.duty;
+            h = Mix(h, duty?.def);
+            h = Mix(h, duty?.focus ?? LocalTargetInfo.Invalid);
+            h = Mix(h, p.mindState?.enemyTarget?.thingIDNumber ?? -1);
+
+            var job = p.jobs?.curJob;
+            h = Mix(h, job?.targetA ?? LocalTargetInfo.Invalid);
+            h = Mix(h, job?.targetB ?? LocalTargetInfo.Invalid);
+            return h;
+        }
+
+        // Runtime type handles and string hashes differ between processes; the type's name doesn't
+        private static readonly Dictionary<Type, int> typeHashes = new();
+
+        private static int TypeHash(Type type)
+        {
+            if (!typeHashes.TryGetValue(type, out var h))
+                typeHashes[type] = h = FaultSignature.Hash(type.FullName ?? type.Name);
+            return h;
+        }
+
+        // A target is a thing (by id) or a cell; invalid is its own value
+        public static ulong Mix(ulong a, LocalTargetInfo t) =>
+            t.HasThing ? Mix(Mix(a, 1), t.Thing.thingIDNumber) : t.IsValid ? Mix(Mix(a, 2), t.Cell) : Mix(a, 3);
+
+        // A target as one leaf value with no spaces: Human12 or (x,z); never ToString or labels, which hold spaces
+        private static string Fmt(LocalTargetInfo t) =>
+            t.HasThing ? t.Thing.ThingID : t.IsValid ? $"({t.Cell.x},{t.Cell.z})" : "none";
+
+        private static string Fmt(IntVec3 c) => c.IsValid ? $"({c.x},{c.z})" : "none";
+
+        private static string SteeringLeaf(Pawn p)
+        {
+            var stance = p.stances?.curStance;
+            var busy = stance as Stance_Busy;
+            var pather = p.pather;
+            var duty = p.mindState?.duty;
+            var job = p.jobs?.curJob;
+            return $"rot={p.rotationInt.AsInt} stance={stance?.GetType().Name ?? "none"} " +
+                   $"stanceFocus={(busy == null ? "none" : Fmt(busy.focusTarg))} stanceTicks={busy?.ticksLeft ?? -1} stanceVerb={busy?.verb?.loadID ?? "none"} " +
+                   $"moving={pather?.Moving == true} next={(pather == null ? "none" : Fmt(pather.nextCell))} " +
+                   $"dest={(pather == null ? "none" : Fmt(pather.Destination))} path={pather?.curPath != null} " +
+                   $"duty={duty?.def?.defName ?? "none"} dutyFocus={(duty == null ? "none" : Fmt(duty.focus))} " +
+                   $"enemy={p.mindState?.enemyTarget?.ThingID ?? "none"} " +
+                   $"tA={(job == null ? "none" : Fmt(job.targetA))} tB={(job == null ? "none" : Fmt(job.targetB))}";
         }
 
         private static ulong PawnsLane(Map map)
@@ -474,6 +548,7 @@ namespace Multiplayer.Client
                             $"{p.ThingID} pos={p.positionInt} faction={p.Faction?.loadID ?? -1} job={p.jobs?.curJob?.def?.defName}#{p.jobs?.curJob?.loadID ?? -1} " +
                             $"mental={p.mindState?.mentalStateHandler?.CurStateDef?.defName} drafted={p.drafter?.Drafted == true} " +
                             $"carry={p.carryTracker?.CarriedThing?.ThingID} inv={p.inventory?.innerContainer?.Count ?? -1} eq={p.equipment?.Primary?.ThingID} " +
+                            SteeringLeaf(p) + " " +
                             $"hediffs=[{hediffs}] needs=[{needs}]"));
                     }
                     break;
