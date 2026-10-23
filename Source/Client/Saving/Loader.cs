@@ -77,6 +77,7 @@ public static class Loader
         Multiplayer.game.myFactionLoading = null;
 
         RebuildCommandQueues();
+        Desyncs.DebugCostWarning.Check();
     }
 
     /// <summary>

@@ -71,6 +71,7 @@ namespace Multiplayer.Client
             SaveLoad.SendGameData(Multiplayer.session.dataSnapshot, false);
 
             StartLocalServer();
+            OnMainThread.Enqueue(Desyncs.DebugCostWarning.Check);
         }
 
         private static void CreateSession(ServerSettings settings) =>

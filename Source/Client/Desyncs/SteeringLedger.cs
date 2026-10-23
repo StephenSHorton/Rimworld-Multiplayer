@@ -43,16 +43,17 @@ namespace Multiplayer.Client.Desyncs
         private static readonly Entry[] entries = new Entry[Kept];
         private static int next;
         private static int count;
-        private static int flagFile = -1;
 
         /// <summary>Set at every lane checkpoint; the patches read nothing else when it's off.</summary>
         public static bool Enabled { get; private set; }
 
+        public static bool FlagFile => File.Exists(Path.Combine(GenFilePaths.SaveDataFolderPath, "MpSteeringLedger.flag"));
+
+        // Read again at every checkpoint (once a second of play): removing the file turns it off without a restart.
+        // It was read once per process, and with a stack per rotation change it can cost several ms a tick.
         public static void Refresh()
         {
-            if (flagFile == -1)
-                flagFile = File.Exists(Path.Combine(GenFilePaths.SaveDataFolderPath, "MpSteeringLedger.flag")) ? 1 : 0;
-            Enabled = Multiplayer.Client != null && (flagFile == 1 || Prefs.DevMode);
+            Enabled = Multiplayer.Client != null && (Prefs.DevMode || FlagFile);
         }
 
         private static void Record(char kind, Pawn pawn, int a, int b, IntVec3 from, LocalTargetInfo dest)
