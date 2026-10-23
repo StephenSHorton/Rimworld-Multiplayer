@@ -321,7 +321,11 @@ public class AsyncWorldTimeComp : IExposable, ITickable
 
                 // Every game gets the command with the same tick: it names the join point for the referee
                 Desyncs.JoinFingerprint.joinPointTick = cmd.ticks;
-                LongEventHandler.QueueLongEvent(CreateJoinPointAndSendIfHost, "MpCreatingJoinPoint", false, null);
+                var reload = data.Left > 0 ? (JoinPointReload)data.ReadByte() : JoinPointReload.Everyone;
+                if (reload == JoinPointReload.HostOnly)
+                    LongEventHandler.QueueLongEvent(CreateHostOnlyJoinPoint, "MpCreatingJoinPoint", false, null);
+                else
+                    LongEventHandler.QueueLongEvent(CreateJoinPointAndSendIfHost, "MpCreatingJoinPoint", false, null);
             }
 
             if (cmdType == CommandType.InitPlayerData)
@@ -430,6 +434,46 @@ public class AsyncWorldTimeComp : IExposable, ITickable
         MpLog.Log($"Join point took {total} ms: self-check lanes before {beforeMs}, save {SaveLoad.lastSaveMs}, reload {SaveLoad.lastLoadMs}, " +
                   $"snapshot and section hashes {reloadMs - SaveLoad.lastSaveMs - SaveLoad.lastLoadMs}, self-check after {afterMs}, " +
                   $"send {total - beforeMs - reloadMs - afterMs}");
+    }
+
+    /// <summary>
+    /// A join point only its joiner loads (<see cref="JoinPointReload.HostOnly"/>): the host saves the snapshot the
+    /// joiner gets and uploads it, and every game plays on with nothing reloaded, so no one else freezes. No
+    /// self-check or section hashes, which compare games that all saved and reloaded. A game catching up skips it.
+    /// </summary>
+    private static void CreateHostOnlyJoinPoint()
+    {
+        if (TickPatch.Simulating || Multiplayer.IsReplay) return;
+        if (Multiplayer.LocalServer == null && !Multiplayer.arbiterInstance)
+        {
+            MpLog.Log($"Join point at timer {TickPatch.Timer}: only the joiner loads, this game plays on");
+            return;
+        }
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        // As SaveLoad.SaveAndReloadCore: in multifaction the save is made as the first player faction, the one loading
+        // starts as, and the host's own is put back after
+        var multifaction = Multiplayer.GameComp.multifaction;
+        var localFaction = Multiplayer.RealPlayerFaction;
+        if (multifaction)
+            Multiplayer.game.ChangeRealPlayerFaction(Find.FactionManager.AllFactions.First(f => f.IsPlayer), false);
+
+        TempGameData data;
+        try
+        {
+            data = SaveLoad.SaveGameData();
+        }
+        finally
+        {
+            if (multifaction)
+                Multiplayer.game.ChangeRealPlayerFaction(localFaction, false);
+        }
+
+        long saveMs = watch.ElapsedMilliseconds;
+        Multiplayer.session.dataSnapshot = SaveLoad.CreateGameDataSnapshot(data, multifaction, hashSections: false);
+        long snapshotMs = watch.ElapsedMilliseconds - saveMs;
+        SaveLoad.SendGameData(Multiplayer.session.dataSnapshot, true);
+        MpLog.Log($"Join point (only the joiner loads) took {watch.ElapsedMilliseconds} ms on the host: save {saveMs}, snapshot {snapshotMs}");
     }
 
     public void SetTimeEverywhere(TimeSpeed speed)

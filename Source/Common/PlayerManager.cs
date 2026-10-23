@@ -120,6 +120,11 @@ namespace Multiplayer.Common
             if (server.settings.pauseOnDesync)
                 server.commands.PauseAll();
 
+            // Its game may have differed from the running ones in what the save doesn't carry: it loads join points
+            // that every game reloads from now on
+            if (server.settings.joinPointReloadsOnlyJoiner && server.worldData.joinersNeedingReloadAll.Add(player.Username))
+                ServerLog.Log($"{player.Username} desynced; their join points reload every game from now on");
+
             if (server.settings.autoJoinPoint.HasFlag(AutoJoinPointFlags.Desync))
                 server.worldData.TryStartJoinPointCreation(true);
         }

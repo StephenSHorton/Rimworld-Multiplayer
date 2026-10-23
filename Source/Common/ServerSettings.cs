@@ -27,8 +27,15 @@ namespace Multiplayer.Common
         public bool syncConfigs = true;
         // Debug: when two games first differ, hold every game at one tick and save each full game state there
         public bool desyncDebugFreeze;
-        // Autosave too, so a joiner never has to catch up through more than one autosave interval of commands.
-        public AutoJoinPointFlags autoJoinPoint = AutoJoinPointFlags.Join | AutoJoinPointFlags.Desync | AutoJoinPointFlags.Autosave;
+        // Not on autosave: a join point freezes every game while it saves and reloads (2-3 s on a two-colony test map,
+        // 8-14 s on a played colony, 2026-10-23), and at 4x speed the daily autosave made one every couple of minutes.
+        // A joiner still gets a fresh one (Join), so it never catches up through more than its own wait.
+        public AutoJoinPointFlags autoJoinPoint = DefaultAutoJoinPoint;
+        public const AutoJoinPointFlags DefaultAutoJoinPoint = AutoJoinPointFlags.Join | AutoJoinPointFlags.Desync;
+        // Experimental: a join point for a joiner (or an autosave) is saved by the host and loaded by the joiner alone;
+        // the other games play on instead of saving and reloading. A player whose game desyncs gets join points that
+        // reload everyone from then on (WorldData.joinersNeedingReloadAll).
+        public bool joinPointReloadsOnlyJoiner;
         public DevModeScope devModeScope;
         public bool hasPassword;
         public string password = "";
@@ -71,7 +78,8 @@ namespace Multiplayer.Common
             ScribeLike.Look(ref desyncTraces, "desyncTraces");
             ScribeLike.Look(ref syncConfigs, "syncConfigs", true);
             ScribeLike.Look(ref desyncDebugFreeze, "desyncDebugFreeze");
-            ScribeLike.Look(ref autoJoinPoint, "autoJoinPoint", AutoJoinPointFlags.Join | AutoJoinPointFlags.Desync | AutoJoinPointFlags.Autosave);
+            ScribeLike.Look(ref autoJoinPoint, "autoJoinPoint", DefaultAutoJoinPoint);
+            ScribeLike.Look(ref joinPointReloadsOnlyJoiner, "joinPointReloadsOnlyJoiner");
             ScribeLike.Look(ref devModeScope, "devModeScope");
             ScribeLike.Look(ref hasPassword, "hasPassword");
             ScribeLike.Look(ref password!, "password", "");
@@ -108,6 +116,7 @@ namespace Multiplayer.Common
             buf.Bind(ref settings.pauseOnJoin);
             buf.Bind(ref settings.pauseOnDesync);
             buf.BindEnum(ref settings.timeControl);
+            buf.Bind(ref settings.joinPointReloadsOnlyJoiner);
         };
     }
 

@@ -6,6 +6,17 @@ using System.Threading.Tasks;
 
 namespace Multiplayer.Common;
 
+/// <summary>
+/// Who reloads at a join point, the one byte of the <see cref="CommandType.CreateJoinPoint"/> command's data (none, as
+/// in replays from before it, means everyone).
+/// </summary>
+public enum JoinPointReload : byte
+{
+    Everyone = 1,
+    // The host saves and uploads, the joiner loads it, every other game plays on
+    HostOnly = 2,
+}
+
 public class WorldData
 {
     public int hostFactionId;
@@ -21,6 +32,10 @@ public class WorldData
     public Dictionary<int, List<byte[]>> mapCmds = new(); // Map id to serialized cmds list
     public Dictionary<int, List<byte[]>>? tmpMapCmds;
     public int lastJoinPointAtTick = -1;
+
+    // Players whose game desynced while host-only join points were on: their later joins reload every game, since a
+    // joiner's game can differ from the running ones in what the save doesn't carry
+    public readonly HashSet<string> joinersNeedingReloadAll = new(StringComparer.Ordinal);
     // When the last join point was done (Environment.TickCount64), for leaving the games' reloads alone
     public long joinPointEndedAtMs = long.MinValue / 2;
 
@@ -42,7 +57,9 @@ public class WorldData
 
     private int CurrentJoinPointTick => Server.IsStandaloneServer ? Server.gameTimer : Server.workTicks;
 
-    public bool TryStartJoinPointCreation(bool force = false, ServerPlayer? sourcePlayer = null)
+    /// <param name="reloadAll">False lets the join point reload only its joiner when the host's setting allows it
+    /// (<see cref="ServerSettings.joinPointReloadsOnlyJoiner"/>); desyncs and /joinpoint always reload everyone.</param>
+    public bool TryStartJoinPointCreation(bool force = false, ServerPlayer? sourcePlayer = null, bool reloadAll = true)
     {
         // A join point reloads every game, which ends a debug freeze
         Server.holdTimerAt = int.MaxValue;
@@ -74,10 +91,13 @@ public class WorldData
             }
         }
 
-        ServerLog.Detail($"Join point started at tick={currentTick}, force={force}, standalone={Server.IsStandaloneServer}");
-        Server.SendChat("Creating a join point...");
+        var reload = !reloadAll && !Server.IsStandaloneServer && Server.settings.joinPointReloadsOnlyJoiner
+            ? JoinPointReload.HostOnly
+            : JoinPointReload.Everyone;
+        ServerLog.Detail($"Join point started at tick={currentTick}, force={force}, standalone={Server.IsStandaloneServer}, reload={reload}");
+        Server.SendChat(reload == JoinPointReload.HostOnly ? "Creating a join point (only the joiner loads)..." : "Creating a join point...");
 
-        Server.commands.Send(CommandType.CreateJoinPoint, ScheduledCommand.NoFaction, ScheduledCommand.Global, Array.Empty<byte>(),
+        Server.commands.Send(CommandType.CreateJoinPoint, ScheduledCommand.NoFaction, ScheduledCommand.Global, new[] { (byte)reload },
             sourcePlayer: Server.IsStandaloneServer ? issuingPlayer : null);
         tmpMapCmds = new Dictionary<int, List<byte[]>>();
         dataSource = new TaskCompletionSource<WorldData>();

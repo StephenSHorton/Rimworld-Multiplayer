@@ -206,11 +206,14 @@ namespace Multiplayer.Client
             return ScribeUtil.FinishWritingToDoc();
         }
 
-        public static GameDataSnapshot CreateGameDataSnapshot(TempGameData data, bool removeCurrentMapId)
+        /// <param name="hashSections">Hash each section of the save for the fingerprint, which the referee compares
+        /// between games that all saved at the join point; a join point only the host saves has nothing to compare.</param>
+        public static GameDataSnapshot CreateGameDataSnapshot(TempGameData data, bool removeCurrentMapId, bool hashSections = true)
         {
             XmlNode gameNode = data.SaveData.DocumentElement["game"];
             XmlNode mapsNode = gameNode["maps"];
-            Desyncs.JoinFingerprint.HashSave(gameNode);
+            if (hashSections)
+                Desyncs.JoinFingerprint.HashSave(gameNode);
 
             var mapCmdsDict = new Dictionary<int, List<ScheduledCommand>>();
             var mapDataDict = new Dictionary<int, byte[]>();

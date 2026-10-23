@@ -15,7 +15,8 @@ public static class Autosaving
     {
         LongEventHandler.QueueLongEvent(() =>
         {
-            var snapshot = SaveLoad.CreateGameDataSnapshot(SaveLoad.SaveGameData(), false);
+            // No section hashes: only a join point's save is compared between games
+            var snapshot = SaveLoad.CreateGameDataSnapshot(SaveLoad.SaveGameData(), false, hashSections: false);
 
             if (!SaveGameToFile_Overwrite(GetNextAutosaveFileName(), snapshot))
                 return;

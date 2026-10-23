@@ -30,7 +30,8 @@ public class ServerJoiningState : AsyncConnectionState
             Server.commands.PauseAll();
 
         if (!Server.IsStandaloneServer && Server.settings.autoJoinPoint.HasFlag(AutoJoinPointFlags.Join))
-            Server.worldData.TryStartJoinPointCreation(sourcePlayer: Player);
+            Server.worldData.TryStartJoinPointCreation(sourcePlayer: Player,
+                reloadAll: Server.worldData.joinersNeedingReloadAll.Contains(Player.Username));
 
         Server.playerManager.OnJoin(Player);
         Server.playerManager.SendInitDataCommand(Player);

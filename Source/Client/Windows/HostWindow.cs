@@ -271,6 +271,17 @@ namespace Multiplayer.Client
                 entry = entry.Down(30);
             }
 
+            // Experimental: join points reload only the joiner
+            MpUI.CheckboxLabeledWithTipNoHighlight(
+                entry.Width(CheckboxWidth),
+                "Only the joiner reloads (experimental):  ",
+                "When a player joins, only the host saves and only the joiner loads; everyone else plays on instead of " +
+                "freezing to save and reload. A player whose game desyncs gets join points that reload everyone from then on.",
+                ref serverSettings.joinPointReloadsOnlyJoiner,
+                placeTextNearCheckbox: true
+            );
+            entry = entry.Down(30);
+
             // Arbiter
             if (MpVersion.IsDebug) {
                 TooltipHandler.TipRegion(entry.Width(CheckboxWidth), "MpArbiterDesc".Translate());
