@@ -11,7 +11,7 @@ public abstract class ClientBaseState(ConnectionBase connection) : MpConnectionS
     [TypedPacketHandler]
     public void HandleKeepAlive(ServerKeepAlivePacket packet)
     {
-        int ticksBehind = TickPatch.tickUntil - TickPatch.Timer;
+        int ticksBehind = CommandStall.TicksBehind();
 
         connection.Send(new ClientKeepAlivePacket(packet.id, ticksBehind, TickPatch.Simulating, TickPatch.workTicks),
             false);
