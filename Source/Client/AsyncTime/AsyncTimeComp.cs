@@ -295,11 +295,11 @@ namespace Multiplayer.Client
 
         public void FinalizeInit()
         {
-            cmds = new Queue<ScheduledCommand>(HostLedClock.InTickOrder(
-                Multiplayer.session.dataSnapshot?.MapCmds.GetValueSafe(map.uniqueID) ?? new List<ScheduledCommand>()
-            ));
-
-            Log.Message($"Init map with cmds {cmds.Count}");
+            // The queues are filled from the snapshot in one place once the load is done (Loader.PostLoad); a join
+            // point's reload puts its own queues back (SaveLoad.SaveAndReloadCore). Copying the map's list here
+            // missed every command that arrived later in the load, and a load off the main thread read the list
+            // while the main thread added to it.
+            cmds = new Queue<ScheduledCommand>();
         }
 
         public static bool keepTheMap;

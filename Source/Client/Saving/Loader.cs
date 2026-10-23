@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Xml;
 using HarmonyLib;
 using Multiplayer.Common;
@@ -75,9 +76,42 @@ public static class Loader
         );
         Multiplayer.game.myFactionLoading = null;
 
-        Multiplayer.AsyncWorldTime.cmds = new Queue<ScheduledCommand>(HostLedClock.InTickOrder(
-            Multiplayer.session.dataSnapshot.MapCmds.GetValueSafe(ScheduledCommand.Global) ?? []));
-        // Map cmds are added in MapAsyncTimeComp.FinalizeInit
+        RebuildCommandQueues();
+    }
+
+    /// <summary>
+    /// Every queue from the snapshot's lists, placed as <see cref="MultiplayerSession.ScheduleCommand"/> places a
+    /// command that arrives in play. The lists hold every command since the join point, including those that came
+    /// while the game loaded; the queues are rebuilt here, on the main thread, after the load, so none is missed or
+    /// queued twice.
+    /// </summary>
+    private static void RebuildCommandQueues()
+    {
+        var snapshot = Multiplayer.session.dataSnapshot.MapCmds;
+        // The tick loop's order (TickPatch.AllTickables): the world, then the maps from the last
+        var loadedMaps = Enumerable.Range(0, Find.Maps.Count).Reverse().Select(i => Find.Maps[i].uniqueID).ToList();
+        var plan = CommandQueuePlan.Build(snapshot, loadedMaps, TickPatch.Timer, MultiplayerSession.consistentCommandOrder);
+
+        Multiplayer.AsyncWorldTime.cmds = new Queue<ScheduledCommand>(plan.world);
+        foreach (var map in Find.Maps)
+            map.AsyncTime().cmds = new Queue<ScheduledCommand>(plan.maps.GetValueSafe(map.uniqueID) ?? []);
+
+        Log.Message($"Command queues at timer {TickPatch.Timer}: {plan.Describe()}");
+        CheckAllQueued("after the load");
+    }
+
+    /// <summary>Logs an error for every snapshot command still ahead that no queue holds: this game would never run it.</summary>
+    public static void CheckAllQueued(string when)
+    {
+        if (Multiplayer.session?.dataSnapshot == null || Multiplayer.game == null) return;
+
+        var loaded = Find.Maps.Select(m => m.uniqueID).ToHashSet();
+        var missing = CommandQueuePlan.Missing(Multiplayer.session.dataSnapshot.MapCmds,
+            TickPatch.AllTickables.Select(t => (IEnumerable<ScheduledCommand>)t.Cmds), loaded, TickPatch.Timer);
+        if (missing.Count == 0) return;
+
+        Log.Error($"{missing.Count} commands {when} are in the snapshot but in no queue at timer {TickPatch.Timer}; " +
+                  $"this game won't run them: {string.Join("; ", missing.Take(8))}{(missing.Count > 8 ? "; ..." : "")}");
     }
 
     private static XmlDocument DataSnapshotToXml(GameDataSnapshot dataSnapshot, List<int> mapsToLoad)

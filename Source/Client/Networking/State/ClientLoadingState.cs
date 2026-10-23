@@ -129,7 +129,11 @@ public class ClientLoadingState(ConnectionBase connection) : ClientBaseState(con
 
         TickPatch.SetSimulation(
             toTickUntil: true,
-            onFinish: () => Multiplayer.Client.Send(Packets.Client_WorldReady),
+            onFinish: () =>
+            {
+                Loader.CheckAllQueued("when the catch-up finished");
+                Multiplayer.Client.Send(Packets.Client_WorldReady);
+            },
             cancelButtonKey: "Quit",
             onCancel: GenScene.GoToMainMenu // Calls StopMultiplayer through a patch
         );
