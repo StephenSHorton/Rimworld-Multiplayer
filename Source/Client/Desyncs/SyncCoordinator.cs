@@ -117,6 +117,12 @@ namespace Multiplayer.Client
                 // The host has only its own opinions: those go quietly
                 while (knownClientOpinions.Count > cap)
                     RemoveAndClearFirst();
+                // Past the old backlog, the host's trace hashes go (with desync traces on they can be large; on
+                // CoreCLR they only find the first differing trace, a soft difference)
+                if (!newOpinion.isLocalClientsOpinion)
+                    for (int i = 0; i < knownClientOpinions.Count - MaxBacklog; i++)
+                        if (knownClientOpinions[i].desyncStackTraceHashes.Count > 0)
+                            knownClientOpinions[i].desyncStackTraceHashes = new List<int>();
                 return;
             }
 
