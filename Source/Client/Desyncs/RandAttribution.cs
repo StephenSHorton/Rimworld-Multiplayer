@@ -604,8 +604,8 @@ namespace Multiplayer.Client.Desyncs
                     ? (thread.IsThreadPoolThread ? "a pool thread" : "an unnamed thread")
                     : "thread \"" + thread.Name + "\"";
                 pendingLogs.Enqueue((true, $"Rand called off the main thread during {scope}'s tick ({n} times so far) on {threadName} " +
-                                    $"(managed id {Environment.CurrentManagedThreadId}); a desync unless that thread keeps its own Rand " +
-                                    "state (a map preview worker does): " + IdLedger.Describe(new StackTrace(2, false), 16)));
+                                    $"(managed id {Environment.CurrentManagedThreadId}); OffThreadRand gives it its own Rand state, so the " +
+                                    "simulation's is untouched: " + IdLedger.Describe(new StackTrace(2, false), 16)));
             }
         }
 
