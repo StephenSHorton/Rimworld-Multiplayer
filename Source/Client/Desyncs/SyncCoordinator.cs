@@ -34,6 +34,7 @@ namespace Multiplayer.Client
         public bool arbiterWasPlayingOnLastValidTick;
 
         private const int MaxBacklog = 30;
+        private int skippedWindows;
 
         // A new game, reload or resync: the Rand attribution window built before it belongs to no opinion of this one
         public SyncCoordinator() => RandAttribution.ResetWindow();
@@ -103,7 +104,13 @@ namespace Multiplayer.Client
 
             if (knownClientOpinions.First().startTick != newOpinion.startTick)
             {
-                // Ignore this opinion
+                // Ignore this opinion. Windows paired by start tick that never line up are never compared, so a
+                // desync in them goes unseen (2026-10-22 Desync-01/02 came with no earlier verdict); say so.
+                skippedWindows++;
+                if (skippedWindows % 50 == 1)
+                    MpLog.Warn($"Sync check skipped a window: the {(newOpinion.isLocalClientsOpinion ? "local" : "other game's")} opinion starts at " +
+                               $"{newOpinion.startTick}, the oldest {(newOpinion.isLocalClientsOpinion ? "other game's" : "local")} one at " +
+                               $"{knownClientOpinions.First().startTick} ({skippedWindows} skipped so far)");
                 newOpinion.Clear();
                 return;
             }
