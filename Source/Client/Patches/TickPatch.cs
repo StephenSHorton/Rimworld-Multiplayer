@@ -214,6 +214,7 @@ namespace Multiplayer.Client
         {
             worked = false;
             SyncVerdicts.Update();
+            Desyncs.ExpensiveDebugSettings.Update();
             Desyncs.RandAttribution.Update();
             Desyncs.HostDesyncReport.Update();
             updateTimer.Restart();

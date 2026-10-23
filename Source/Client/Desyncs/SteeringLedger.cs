@@ -44,14 +44,21 @@ namespace Multiplayer.Client.Desyncs
         private static int next;
         private static int count;
         private static int flagFile = -1;
+        private static long nextFlagCheck;
 
         /// <summary>Set at every lane checkpoint; the patches read nothing else when it's off.</summary>
         public static bool Enabled { get; private set; }
 
         public static void Refresh()
         {
-            if (flagFile == -1)
+            // Looked at again every few seconds, so adding or deleting the flag takes effect in a running game (it was
+            // read once per process: on 2026-10-22 deleting it to stop Blake's slow frames needed a restart)
+            long now = System.Environment.TickCount64;
+            if (flagFile == -1 || now >= nextFlagCheck)
+            {
+                nextFlagCheck = now + 5000;
                 flagFile = File.Exists(Path.Combine(GenFilePaths.SaveDataFolderPath, "MpSteeringLedger.flag")) ? 1 : 0;
+            }
             Enabled = Multiplayer.Client != null && (flagFile == 1 || Prefs.DevMode);
         }
 
