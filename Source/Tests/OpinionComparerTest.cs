@@ -41,6 +41,19 @@ public class OpinionComparerTest
     }
 
     [Test]
+    public void TimeLaneVerdictPrintsBothSidesInputs()
+    {
+        var a = Opinion();
+        var b = Opinion();
+        a.lanes = [new LaneHash { tick = 360, mapId = 0, lane = "time", hash = 1, hard = true, detail = "mapTicks=900 speed=Normal" }];
+        b.lanes = [new LaneHash { tick = 360, mapId = 0, lane = "time", hash = 2, hard = true, detail = "mapTicks=899 speed=Paused" }];
+
+        var verdict = OpinionComparer.Compare(a, b);
+        Assert.That(verdict.hardLane, Is.EqualTo("time"));
+        Assert.That(verdict.hard, Does.Contain("reference: mapTicks=900 speed=Normal").And.Contain("other: mapTicks=899 speed=Paused"));
+    }
+
+    [Test]
     public void OneSidedErrorIsSoft()
     {
         var a = Opinion();

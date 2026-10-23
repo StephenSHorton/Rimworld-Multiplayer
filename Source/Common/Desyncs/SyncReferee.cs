@@ -283,6 +283,43 @@ public class SyncReferee
         }
     }
 
+    /// <summary>
+    /// A player's own game found a desync (<see cref="ClientDesyncedPacket"/>). The host logs it and, unless the
+    /// referee already reported this player's desync, gets the verdict (its report and message); both games are asked
+    /// for the entities of every lane that differs and the Rand tables of the first random state list that differs.
+    /// </summary>
+    public void OnClientDesync(ServerPlayer player, ClientDesyncedPacket packet)
+    {
+        ServerLog.Log($"{player.Username} desynced at {packet.tick}: {packet.message}" +
+                      (packet.lane != "" ? $" (lane {packet.lane}, map {packet.mapId})" : ""));
+        foreach (var extra in packet.extra ?? [])
+            ServerLog.Log($"{player.Username} desynced at {packet.tick}, also: {extra}");
+
+        foreach (var lane in packet.laneDiffs ?? [])
+        {
+            var bar = lane.IndexOf('|');
+            if (bar > 0 && int.TryParse(lane.Substring(0, bar), out var mapId))
+                RequestLeaves(player, mapId, lane.Substring(bar + 1));
+        }
+
+        if (packet.rngScope != ClientDesyncedPacket.NoRng && packet.rngEntry >= 0)
+            RequestRandAttr(player, packet.rngScope, packet.tick, (short)System.Math.Max(0, packet.rngEntry - 1),
+                (short)System.Math.Min(short.MaxValue, packet.rngEntry), hard: true);
+
+        if (!hardReported.Add(player.id)) return;
+        Send(player, new ServerSyncVerdictPacket
+        {
+            playerId = player.id,
+            username = player.Username,
+            tick = packet.tick,
+            hard = true,
+            lane = packet.lane ?? "",
+            mapId = packet.mapId,
+            message = TruncateUtf8($"found by {player.Username}'s game: {packet.message}", 4096),
+            extra = (packet.extra ?? []).Take(ServerSyncVerdictPacket.MaxExtra).ToArray()
+        });
+    }
+
     // --- Leaves: which entity differs ---
 
     private const int LeafLead = 30;

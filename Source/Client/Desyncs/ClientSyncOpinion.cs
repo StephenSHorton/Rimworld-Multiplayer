@@ -31,12 +31,15 @@ namespace Multiplayer.Client
 
         // What the last CheckForDesync found that doesn't stop play.
         public List<string> softDifferences = new();
+        // The last CheckForDesync's whole verdict (the hard difference's lane, map and random state list)
+        public OpinionVerdict verdict;
 
         public string CheckForDesync(ClientSyncOpinion other)
         {
             var reference = isLocalClientsOpinion ? other : this;
             var checkedOne = isLocalClientsOpinion ? this : other;
             var verdict = OpinionComparer.Compare(reference.ToNet(), checkedOne.ToNet());
+            this.verdict = verdict;
             softDifferences = verdict.soft;
 
             if (verdict.hard != null)

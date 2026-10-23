@@ -123,6 +123,11 @@ public record struct LaneHash : IPacketBufferable
     public string lane;
     public ulong hash;
     public bool hard;
+    // What the hash was made of, for lanes that are a handful of values (the time lanes): both games' values go in
+    // the verdict when the lane differs. Empty for the others.
+    public string detail;
+
+    public const int MaxDetailBytes = 256;
 
     public void Bind(PacketBuffer buf)
     {
@@ -131,5 +136,7 @@ public record struct LaneHash : IPacketBufferable
         buf.Bind(ref lane, maxLength: 64);
         buf.Bind(ref hash);
         buf.Bind(ref hard);
+        detail ??= "";
+        buf.Bind(ref detail, maxLength: MaxDetailBytes);
     }
 }

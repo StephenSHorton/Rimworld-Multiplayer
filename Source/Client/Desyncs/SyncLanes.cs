@@ -32,8 +32,8 @@ namespace Multiplayer.Client
         private const double BudgetMs = 4;
 
         // cadence: computed every cadence-th checkpoint, lanes staggered so the slow ones don't share a checkpoint
-        private record MapLane(string name, Func<Map, ulong> hash, bool hard, int cadence);
-        private record WorldLane(string name, Func<ulong> hash, bool hard, int cadence);
+        private record MapLane(string name, Func<Map, ulong> hash, bool hard, int cadence, Func<Map, string> detail = null);
+        private record WorldLane(string name, Func<ulong> hash, bool hard, int cadence, Func<string> detail = null);
 
         /// <summary>For whole-map grids (250x250 cells and up): every fifth checkpoint, about 5 s of game time.</summary>
         public const int GridCadence = 5;
@@ -65,12 +65,14 @@ namespace Multiplayer.Client
             // HARD: two games whose map clocks differ have desynced, whatever the random states say (a map split
             // that way on a real session while every random state matched)
             RegisterMapLane("time", MapTimeLane, hard: true);
+            mapLanes[^1] = mapLanes[^1] with { detail = MapTimeDetail };
 
             RegisterWorldLane("factions", FactionsLane);
             RegisterWorldLane("quests", QuestsLane);
             RegisterWorldLane("worldobjects", WorldObjectsLane);
             RegisterWorldLane("worldpawns", WorldPawnsLane);
             RegisterWorldLane("time", WorldTimeLane, hard: true);
+            worldLanes[^1] = worldLanes[^1] with { detail = WorldTimeDetail };
             RegisterWorldLane("ids", Desyncs.IdLedger.LaneHash);
         }
 
@@ -109,7 +111,8 @@ namespace Multiplayer.Client
                 {
                     var lane = mapLanes[i];
                     if (!computeAll && !Due(tick, i + m, lane.cadence)) continue;
-                    into.Add(new LaneHash { tick = tick, mapId = map.uniqueID, lane = lane.name, hash = Safe(lane.name, () => lane.hash(map)), hard = lane.hard });
+                    into.Add(new LaneHash { tick = tick, mapId = map.uniqueID, lane = lane.name, hash = Safe(lane.name, () => lane.hash(map)), hard = lane.hard,
+                        detail = lane.detail != null ? SafeDetail(() => lane.detail(map)) : "" });
                 }
             }
 
@@ -117,7 +120,8 @@ namespace Multiplayer.Client
             {
                 var lane = worldLanes[i];
                 if (!computeAll && !Due(tick, i, lane.cadence)) continue;
-                into.Add(new LaneHash { tick = tick, mapId = -1, lane = lane.name, hash = Safe(lane.name, lane.hash), hard = lane.hard });
+                into.Add(new LaneHash { tick = tick, mapId = -1, lane = lane.name, hash = Safe(lane.name, lane.hash), hard = lane.hard,
+                    detail = lane.detail != null ? SafeDetail(lane.detail) : "" });
             }
 
             watch.Stop();
@@ -508,6 +512,36 @@ namespace Multiplayer.Client
                     }
             }
             return sum;
+        }
+
+        private static string SafeDetail(Func<string> detail)
+        {
+            try
+            {
+                return detail() ?? "";
+            }
+            catch (Exception e)
+            {
+                return $"detail failed: {e.GetType().Name}";
+            }
+        }
+
+        public static string RandText(ulong state) => $"{(uint)state:X8}:{(uint)(state >> 32)}";
+
+        // The inputs of the time lanes, printed on both sides when they differ (the hash says only that they do)
+        private static string MapTimeDetail(Map map)
+        {
+            var comp = map.AsyncTime();
+            if (comp == null) return "no time comp";
+            return $"mapTicks={comp.mapTicks} speed={comp.DesiredTimeSpeed} rand={RandText(comp.randState)} gameStart={comp.GameStartAbsTickHeld}";
+        }
+
+        private static string WorldTimeDetail()
+        {
+            var comp = Multiplayer.AsyncWorldTime;
+            var tm = Find.TickManager;
+            return $"worldTicks={comp.worldTicks} ticksGame={tm.TicksGame} speed={comp.DesiredTimeSpeed} tmSpeed={tm.CurTimeSpeed} " +
+                   $"rand={RandText(comp.randState)} gameStart={comp.gameStartAbsTick}";
         }
 
         private static ulong MapTimeLane(Map map)

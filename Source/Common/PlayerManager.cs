@@ -106,10 +106,14 @@ namespace Multiplayer.Common
             ServerLog.Log($"Disconnected ({reason}): {conn}");
         }
 
-        public void OnDesync(ServerPlayer player, int tick, int diffAt)
+        public void OnDesync(ServerPlayer player, ClientDesyncedPacket packet)
         {
+            int tick = packet.tick, diffAt = packet.diffAt;
             player.UpdateStatus(PlayerStatus.Desynced);
             server.HostPlayer.SendPacket(ServerTracesPacket.Request(tick, diffAt, player.id));
+            // Before, the host never heard what the player's game found (it was often found while catching up, when
+            // the referee had nothing to pair)
+            server.referee.OnClientDesync(player, packet);
 
             player.ResetTimeVotes();
 

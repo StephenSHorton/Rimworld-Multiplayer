@@ -86,6 +86,33 @@ public class SyncRefereeTest
     }
 
     [Test]
+    public void ClientFoundDesyncReachesTheHostAndAsksForTheDiffs()
+    {
+        var host = AddPlayer("host", isHost: true);
+        var blake = AddPlayer("Blake");
+
+        var packet = new ClientDesyncedPacket(600, -1)
+        {
+            message = "map 0 / time lane differs at tick 600 (reference: mapTicks=900; other: mapTicks=899)",
+            lane = "time",
+            mapId = 0,
+            rngScope = 0,
+            rngEntry = 4,
+            laneDiffs = ["0|time"]
+        };
+        server.referee.OnClientDesync(blake, packet);
+
+        Assert.That(Sent(host, Packets.Server_SyncVerdict), Is.EqualTo(1));
+        Assert.That(Sent(host, Packets.Server_LeafRequest), Is.EqualTo(1));
+        Assert.That(Sent(host, Packets.Server_RandAttrRequest), Is.EqualTo(1));
+        Assert.That(Sent(blake, Packets.Server_RandAttrRequest), Is.EqualTo(1));
+
+        // Reported once: the referee's own verdict for the same player doesn't go out again
+        server.referee.OnClientDesync(blake, packet);
+        Assert.That(Sent(host, Packets.Server_SyncVerdict), Is.EqualTo(1));
+    }
+
+    [Test]
     public void ResetLeavesOtherPlayersCounts()
     {
         var host = AddPlayer("host", isHost: true);

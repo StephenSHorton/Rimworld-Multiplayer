@@ -183,6 +183,7 @@ namespace Multiplayer.Client
                 while (tickable.Cmds.Count > 0 && tickable.Cmds.Peek().ticks <= curTimer)
                 {
                     ScheduledCommand cmd = tickable.Cmds.Dequeue();
+                    Desyncs.CommandLog.Record(cmd);
 
                     // A command for a tick this game has already passed can't run where it belongs, and left at the
                     // head of the queue it blocked every command behind it (Blake's game stopped taking orders while

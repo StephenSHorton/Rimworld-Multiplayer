@@ -137,6 +137,9 @@ public static class OpinionComparer
             verdict.laneDiffs.Add((lane.mapId, lane.lane));
             var where = lane.mapId == -1 ? "world" : $"map {lane.mapId}";
             var msg = $"{where} / {lane.lane} lane differs at tick {lane.tick}";
+            // A lane of a few values (time) carries them: both sides' say which input moved
+            if (!string.IsNullOrEmpty(lane.detail) || !string.IsNullOrEmpty(theirs.detail))
+                msg += $" (reference: {lane.detail}; other: {theirs.detail})";
             if (lane.hard && theirs.hard && verdict.hard == null)
             {
                 verdict.hard = msg;

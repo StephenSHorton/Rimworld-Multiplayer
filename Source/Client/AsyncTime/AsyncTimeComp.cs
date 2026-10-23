@@ -81,6 +81,8 @@ namespace Multiplayer.Client
         public Map map;
         public int mapTicks;
         private int gameStartAbsTickMap;
+        /// <summary>The map's own start tick as held, 0 until first read; reading it fills nothing (for the time lane's detail).</summary>
+        public int GameStartAbsTickHeld => gameStartAbsTickMap;
         private TimeSpeed timeSpeedInt;
         public bool forcedNormalSpeed;
         public int eventCount;

@@ -277,6 +277,11 @@ public class PacketTest
         yield return new ClientDesyncedPacket(1234, 4567);
         yield return new ClientDesyncedPacket(0, 0);
         yield return new ClientDesyncedPacket(100, 0);
+        yield return new ClientDesyncedPacket(600, -1)
+        {
+            message = "map 0 / time lane differs", lane = "time", mapId = 0, rngScope = -2, rngEntry = 3,
+            laneDiffs = ["0|time", "-1|ids"], extra = ["Error only in the other game"]
+        };
 
         yield return new Multiplayer.Common.Desyncs.ClientFingerprintPacket
         {

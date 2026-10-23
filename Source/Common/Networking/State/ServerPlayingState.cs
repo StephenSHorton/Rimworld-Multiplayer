@@ -22,7 +22,7 @@ namespace Multiplayer.Common
 
         [TypedPacketHandler]
         public void HandleDesynced(ClientDesyncedPacket packet) =>
-            Server.playerManager.OnDesync(Player, packet.tick, packet.diffAt);
+            Server.playerManager.OnDesync(Player, packet);
 
         [TypedPacketHandler]
         public void HandleTraces(ClientTracesPacket packet)

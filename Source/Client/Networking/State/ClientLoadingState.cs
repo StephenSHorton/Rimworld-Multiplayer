@@ -141,7 +141,8 @@ public class ClientLoadingState(ConnectionBase connection) : ClientBaseState(con
         Stopwatch watch = Stopwatch.StartNew();
         Loader.ReloadGame(mapsToLoad, true, () =>
         {
-            foreach (var opinion in initialOpinions)
+            // In window order: the pairing expects each side's opinions oldest first
+            foreach (var opinion in initialOpinions.OrderBy(o => o.startTick))
             {
                 Multiplayer.game.sync.AddClientOpinionAndCheckDesync(opinion);
             }

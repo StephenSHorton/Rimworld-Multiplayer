@@ -15,11 +15,24 @@ namespace Multiplayer.Client
     {
         public bool ShouldCollect => !Multiplayer.IsReplay;
 
+        // Every game keys a window by the timer tick after the last window closed (they close at the same ticks),
+        // not by the tick its first record came at: a window that started with a one-sided error, or with the first
+        // command after a pause, was keyed differently on each game and never compared, without a word. Every load
+        // makes a new coordinator, whose first window starts at the loaded timer (OnLoaded): every game reloads at a
+        // join point's tick, and a joiner loads that join point's save.
+        private int nextWindowStart = -1;
+
         private ClientSyncOpinion OpinionInBuilding =>
-            currentOpinion ??= new ClientSyncOpinion(TickPatch.Timer)
+            currentOpinion ??= new ClientSyncOpinion(nextWindowStart >= 0 ? nextWindowStart : TickPatch.Timer)
             {
                 isLocalClientsOpinion = true
             };
+
+        /// <summary>The game finished loading at this timer tick: the first window starts there.</summary>
+        public void OnLoaded(int timer)
+        {
+            if (currentOpinion == null) nextWindowStart = timer;
+        }
 
         // Contains both local and remote opinions. The first opinion is the oldest one, and the last is the newest one.
         // The host player has only local opinions.
@@ -34,13 +47,20 @@ namespace Multiplayer.Client
         public bool arbiterWasPlayingOnLastValidTick;
 
         private const int MaxBacklog = 30;
+        // The host's opinions wait for a joiner catching up from far behind (about 5 minutes of play): with 30 the
+        // oldest, the ones the joiner reaches next, were dropped first and nothing was compared until it caught up
+        private const int MaxRemoteBacklog = 600;
+
+        private int skippedPairs;
 
         // A new game, reload or resync: the Rand attribution window built before it belongs to no opinion of this one
         public SyncCoordinator() => RandAttribution.ResetWindow();
 
         public ClientSyncOpinion FinishLocalOpinion()
         {
-            if (!ShouldCollect || currentOpinion == null) return null;
+            if (!ShouldCollect) return null;
+            nextWindowStart = TickPatch.Timer + 1;
+            if (currentOpinion == null) return null;
             currentOpinion.roundMode = RoundMode.GetCurrentRoundMode();
             currentOpinion.randAttr = RandAttribution.TakeWindowHashes(currentOpinion.startTick);
             var opinion = currentOpinion;
@@ -84,15 +104,25 @@ namespace Multiplayer.Client
 
             if (knownClientOpinions[0].isLocalClientsOpinion == newOpinion.isLocalClientsOpinion)
             {
-                knownClientOpinions.Add(newOpinion);
-                if (knownClientOpinions.Count > MaxBacklog)
+                // In window order, whatever order they came in (a joiner gets the host's latest opinions with the
+                // game and the live ones after, and adds its own while it catches up)
+                int at = knownClientOpinions.FindLastIndex(o => o.startTick <= newOpinion.startTick) + 1;
+                if (at > 0 && knownClientOpinions[at - 1].startTick == newOpinion.startTick)
+                {
+                    newOpinion.Clear();
+                    return;
+                }
+                knownClientOpinions.Insert(at, newOpinion);
+                var cap = newOpinion.isLocalClientsOpinion ? MaxBacklog : MaxRemoteBacklog;
+                // The host has only its own opinions: those go quietly
+                while (knownClientOpinions.Count > cap)
                     RemoveAndClearFirst();
                 return;
             }
 
             // Remove all opinions that started before this one, as it's the most up-to-date one
             while (knownClientOpinions.Count > 0 && knownClientOpinions[0].startTick < newOpinion.startTick)
-                RemoveAndClearFirst();
+                LogSkipped(knownClientOpinions[0], $"the other side's next is from tick {newOpinion.startTick}");
 
             // If there are none left, we don't need to compare this new one
             if (knownClientOpinions.Count == 0)
@@ -104,7 +134,9 @@ namespace Multiplayer.Client
             if (knownClientOpinions.First().startTick != newOpinion.startTick)
             {
                 // Ignore this opinion
-                newOpinion.Clear();
+                var why = $"the other side's oldest kept is from tick {knownClientOpinions[0].startTick}";
+                knownClientOpinions.Insert(0, newOpinion);
+                LogSkipped(newOpinion, why);
                 return;
             }
 
@@ -151,6 +183,15 @@ namespace Multiplayer.Client
             opinion.Clear();
         }
 
+        /// <summary>Drops the first opinion, which no opinion of the other side will pair with, and says so (rate limited).</summary>
+        private void LogSkipped(ClientSyncOpinion opinion, string why)
+        {
+            RemoveAndClearFirst();
+            if (skippedPairs++ < 5 || skippedPairs % 100 == 0)
+                MpLog.Log($"Sync check skipped for the {(opinion.isLocalClientsOpinion ? "local" : "host's")} opinion of the window from tick {opinion.startTick}: " +
+                          $"no opinion of the other side for it ({why}; {skippedPairs} skipped so far, last valid tick {lastValidTick})");
+        }
+
         /// <summary>
         /// Called by <see cref="AddClientOpinionAndCheckDesync"/> if the newly added opinion doesn't match with what other ones.
         /// </summary>
@@ -164,10 +205,30 @@ namespace Multiplayer.Client
             var remote = !oldOpinion.isLocalClientsOpinion ? oldOpinion : newOpinion;
 
             var diffAt = FindTraceHashesDiffTick(local, remote, out var found);
-            Multiplayer.Client.Send(new ClientDesyncedPacket(local.startTick, diffAt));
+            var verdict = oldOpinion.verdict;
+            Multiplayer.Client.Send(DesyncedPacket(local.startTick, diffAt, desyncMessage, verdict));
+
+            // A clock or a command count that differs comes from the commands: say which ran here
+            bool timeLane = verdict?.hardLane == "time";
+            bool commandCount = verdict != null && verdict.rngDiffs.Any(d => d.scope == RandAttrScope.Commands);
+            if (timeLane || commandCount)
+                MpLog.Log(SaveableDesyncInfo.CommandReport(local.startTick, lastValidTick));
 
             DesyncRecovery.OnDesync(desyncMessage, new SaveableDesyncInfo(this, local, remote, diffAt, found, desyncMessage));
         }
+
+        /// <summary>The verdict for the server: the host logs it and the referee asks both games for what differs.</summary>
+        public static ClientDesyncedPacket DesyncedPacket(int tick, int diffAt, string message, OpinionVerdict verdict) =>
+            new(tick, diffAt)
+            {
+                message = SyncReferee.TruncateUtf8(message ?? "", ClientDesyncedPacket.MaxMessageBytes),
+                lane = verdict?.hardLane ?? "",
+                mapId = verdict?.hardMapId ?? -1,
+                rngScope = verdict is { rngDiffs.Count: > 0 } ? verdict.rngDiffs[0].scope : ClientDesyncedPacket.NoRng,
+                rngEntry = verdict is { rngDiffs.Count: > 0 } ? verdict.rngDiffs[0].entry : -1,
+                laneDiffs = verdict?.laneDiffs.Take(64).Select(d => $"{d.mapId}|{d.lane}").ToArray() ?? [],
+                extra = verdict?.extra.Take(ClientDesyncedPacket.MaxExtra).Select(e => SyncReferee.TruncateUtf8(e, 1000)).ToArray() ?? []
+            };
 
         private static int FindTraceHashesDiffTick(ClientSyncOpinion local, ClientSyncOpinion remote, out bool found)
         {

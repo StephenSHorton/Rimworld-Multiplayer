@@ -466,5 +466,6 @@ public class AsyncWorldTimeComp : IExposable, ITickable
     public void FinalizeInit()
     {
         Multiplayer.game.SetThingMakerSeed((int)(randState >> 32));
+        Multiplayer.game.sync.OnLoaded(TickPatch.Timer);
     }
 }

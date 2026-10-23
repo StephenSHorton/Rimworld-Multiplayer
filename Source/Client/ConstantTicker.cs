@@ -125,15 +125,14 @@ namespace Multiplayer.Client
                 try
                 {
                     // Every game sends its opinions: the server compares each with the reference game's and tells
-                    // both players when they differ, so the host hears about a desync too.
-                    if (!TickPatch.Simulating)
-                    {
-                        var net = opinion.ToNet();
-                        // Only the clients compare trace hashes, against the reference game's
-                        if (Multiplayer.LocalServer == null && !Multiplayer.arbiterInstance)
-                            net.traceHashes = [];
-                        Multiplayer.Client.SendFragmented(new ClientSyncInfoPacket { SyncOpinion = net }.Serialize());
-                    }
+                    // both players when they differ, so the host hears about a desync too. A joiner catching up
+                    // sends them as well (without traces): the server keeps more of the host's windows than the
+                    // joiner gets, and a desync found while catching up reached nobody but the joiner.
+                    var net = opinion.ToNet();
+                    // Only the clients compare trace hashes, against the reference game's
+                    if (TickPatch.Simulating || Multiplayer.LocalServer == null && !Multiplayer.arbiterInstance)
+                        net.traceHashes = [];
+                    Multiplayer.Client.SendFragmented(new ClientSyncInfoPacket { SyncOpinion = net }.Serialize());
                 }
                 catch (Exception e)
                 {

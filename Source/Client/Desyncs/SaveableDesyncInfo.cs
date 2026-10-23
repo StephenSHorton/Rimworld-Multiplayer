@@ -29,9 +29,24 @@ public class SaveableDesyncInfo(
     public readonly ClientSyncOpinion remote = remote;
     public readonly int diffAt = diffAt;
     private readonly Task<string> metadata = Task.Run(MetadataGenerator.Generate);
+    // Taken now: the report is saved after the host's traces arrive, when a resync may have replaced the snapshot
+    private readonly string commands = CommandReport(local.startTick, coordinator.lastValidTick);
     private readonly Task<FileInfo> replay = Task.Run(SaveReplayIfApplicable);
 
     public bool ReadyToSave => metadata.IsCompleted && replay.IsCompleted;
+
+    /// <summary>The commands this game ran since the last valid tick and the window's commands (<see cref="CommandLog"/>).</summary>
+    public static string CommandReport(int windowStart, int lastValidTick)
+    {
+        try
+        {
+            return CommandLog.Report(windowStart, lastValidTick >= 0 ? lastValidTick : windowStart - 300);
+        }
+        catch (Exception e)
+        {
+            return $"Couldn't list the commands: {e}";
+        }
+    }
 
     public void Save([CanBeNull] HostInfo hostInfo)
     {
@@ -45,6 +60,7 @@ public class SaveableDesyncInfo(
             zip.AddEntry("desync_info", GetDesyncDetails());
             zip.AddEntry("lanes.txt", FlightRecorder.CompareLanes(local.ToNet(), remote.ToNet()));
             zip.AddEntry("local_flight_recorder.txt", coordinator.recorder.Dump());
+            zip.AddEntry("local_commands.txt", commands);
             RandAttrReports.AddToZip(zip, local.startTick, Multiplayer.username);
             zip.AddEntry("entity_diffs.txt", LeafRequests.recentDiffs.Count > 0
                 ? string.Join("\n\n", LeafRequests.recentDiffs)
