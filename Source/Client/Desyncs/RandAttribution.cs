@@ -528,6 +528,7 @@ namespace Multiplayer.Client.Desyncs
         {
             if (!active || Environment.CurrentManagedThreadId != mainThreadId) return;
             Sample();
+            var from = stack[0].basePhase;
             stack[0].basePhase = phase;
             if (depth > 1)
             {
@@ -535,7 +536,7 @@ namespace Multiplayer.Client.Desyncs
                 // repaired here by design, counted rather than logged every tick; each kind of frame left open is
                 // named once, so a boundary that never pops shows which one it is
                 framesRepaired++;
-                NoteOpenFrames($"moved from {PhaseName(stack[0].basePhase)} to {PhaseName(phase)}");
+                NoteOpenFrames($"moved from {PhaseName(from)} to {PhaseName(phase)}");
                 depth = 1;
             }
         }

@@ -45,6 +45,12 @@ namespace Multiplayer.Client.Desyncs
                     if (cur != null) result.Add(cur);
                     continue;
                 }
+                // The host's text puts section headers between entries; they end the entry before them
+                if (line.StartsWith("Context traces:") || line.StartsWith("Trace count:") || line.StartsWith("Trace of first"))
+                {
+                    cur = null;
+                    continue;
+                }
                 if (cur != null && line.Length > 0 && cur.frames.Count < ShownFrames) cur.frames.Add(line);
             }
             return result.OrderBy(e => e.index).ToList();
