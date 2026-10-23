@@ -11,7 +11,8 @@ namespace Multiplayer.Common
     /// Who was slow and when: each game's frame time as the server sees it (<see cref="ServerPlayer.frameTime"/>, the
     /// client's smoothed frame time, sent about 30 times a second while it ticks), sampled every net tick. Once a second
     /// a player's p50 that moved by 20% or more since the last line for that player writes a line, and every 30 s every
-    /// player gets one: <c>HH:MM:SS player p50 p95 serverTimePerTick</c>, in ms, to
+    /// player gets one: <c>HH:MM:SS player p50 p95 serverTimePerTick</c>, in ms (with <c>STALE Ns</c> every second while
+    /// the player's connection is quiet), to
     /// <c>MpDesyncs/perf-timeline-&lt;session&gt;.txt</c>. A player with no frame time yet (0) is skipped.
     /// </summary>
     public class PerfTimeline
@@ -69,7 +70,10 @@ namespace Multiplayer.Common
         }
 
         /// <summary>Called once a second; returns the lines written.</summary>
-        public List<string> Second(IEnumerable<string> present, float serverTimePerTick, DateTime now)
+        /// <param name="stale">Players whose connection went quiet, with the seconds since their last packet: each
+        /// gets a line every second, marked <c>STALE</c>, since its frame time stays at its last value</param>
+        public List<string> Second(IEnumerable<string> present, float serverTimePerTick, DateTime now,
+            ICollection<(string name, double seconds)>? stale = null)
         {
             seconds++;
             var heartbeat = seconds % HeartbeatSeconds == 0;
@@ -87,11 +91,17 @@ namespace Multiplayer.Common
                 var p50 = Percentile(sorted, 0.5f);
                 var p95 = Percentile(sorted, 0.95f);
                 var moved = p.lastP50 <= 0 || Math.Abs(p50 - p.lastP50) >= p.lastP50 * ChangeThreshold;
-                if (!moved && !heartbeat) continue;
+                double? staleFor = null;
+                foreach (var (staleName, seconds) in stale ?? [])
+                    if (staleName == name) staleFor = seconds;
+                if (!moved && !heartbeat && staleFor == null) continue;
 
                 if (moved) p.lastP50 = p50;
-                lines.Add(string.Format(CultureInfo.InvariantCulture, "{0:HH:mm:ss} {1} {2:F1} {3:F1} {4:F1}",
-                    now, name, p50, p95, serverTimePerTick));
+                var line = string.Format(CultureInfo.InvariantCulture, "{0:HH:mm:ss} {1} {2:F1} {3:F1} {4:F1}",
+                    now, name, p50, p95, serverTimePerTick);
+                if (staleFor is { } s)
+                    line += string.Format(CultureInfo.InvariantCulture, " STALE {0:F0}s", s);
+                lines.Add(line);
             }
 
             if (lines.Count > 0 && path != null && !failed)

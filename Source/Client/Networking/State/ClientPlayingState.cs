@@ -157,11 +157,21 @@ namespace Multiplayer.Client
             });
         }
 
+        // Notifications with no key in the language files yet (Languages is a submodule): shown in English
+        private static readonly Dictionary<string, string> UntranslatedNotifications = new()
+        {
+            ["MpPlayerConnectionLost"] = "{0}: connection lost, waiting (no packet for {1} s)",
+            ["MpPlayerConnectionBack"] = "{0}: connection is back",
+            ["MpPlayerConnectionDropped"] = "{0}: no packet for {1} s, dropped; they can rejoin"
+        };
+
         [TypedPacketHandler]
         public void HandleNotification(ServerNotificationPacket packet)
         {
             var namedArgs = Array.ConvertAll(packet.args, s => (NamedArgument)s);
-            var msg = packet.key.Translate(namedArgs);
+            string msg = packet.key.CanTranslate() || !UntranslatedNotifications.TryGetValue(packet.key, out var format)
+                ? packet.key.Translate(namedArgs).ToString()
+                : string.Format(format, packet.args.Cast<object>().ToArray());
             Messages.Message(msg, MessageTypeDefOf.SilentInput, false);
             ServerLog.Log($"Notification: {msg} ({packet.key}, {packet.args.Join(", ")})");
         }

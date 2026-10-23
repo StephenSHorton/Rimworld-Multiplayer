@@ -12,6 +12,14 @@ namespace Multiplayer.Common
 
         public virtual int Latency { get; set; }
 
+        // What came and went on this connection, for finding a connection that went quiet with no error (2026-10-22:
+        // a player stopped receiving the timer and nobody's game said why)
+        public long lastReceivedAtMs = Environment.TickCount64;
+        public long packetsReceived, bytesReceived, packetsSent, bytesSent;
+        public long LastReceivedAgeMs => Environment.TickCount64 - lastReceivedAtMs;
+        public string TrafficText => $"last packet {LastReceivedAgeMs} ms ago, received {packetsReceived} packets ({bytesReceived} bytes), " +
+                                     $"sent {packetsSent} ({bytesSent} bytes)";
+
         public ConnectionStateEnum State { get; private set; }
         public MpConnectionState? StateObj { get; private set; }
         // If lenient is set, reliable packets without handlers are ignored instead of throwing an exception.
@@ -62,6 +70,8 @@ namespace Multiplayer.Common
             full[0] = (byte)(Convert.ToByte(id) & 0x3F);
             message.CopyTo(full, 1);
 
+            packetsSent++;
+            bytesSent += full.Length;
             SendRaw(full, reliable);
         }
 
@@ -131,6 +141,8 @@ namespace Multiplayer.Common
                 writer.WriteFrom(message, read, len);
 
                 // SendRaw copies this data so we can freely clear the writer after it executes.
+                packetsSent++;
+                bytesSent += writer.Position;
                 SendRaw(writer.ToArray(), reliable: true);
                 writer.SetLength(0);
 
@@ -146,6 +158,10 @@ namespace Multiplayer.Common
         {
             if (State == ConnectionStateEnum.Disconnected)
                 return;
+
+            lastReceivedAtMs = Environment.TickCount64;
+            packetsReceived++;
+            bytesReceived += data.Left;
 
             if (data.Left == 0)
                 throw new PacketReadException("No packet id");

@@ -1,3 +1,4 @@
+using System;
 using Multiplayer.Client.Networking;
 using Multiplayer.Common;
 using Multiplayer.Common.Networking.Packet;
@@ -11,7 +12,10 @@ public abstract class ClientBaseState(ConnectionBase connection) : MpConnectionS
     [TypedPacketHandler]
     public void HandleKeepAlive(ServerKeepAlivePacket packet)
     {
-        int ticksBehind = TickPatch.tickUntil - TickPatch.Timer;
+        // Behind the limit the server last sent, not the one this game runs to: that one waits until every command
+        // the server counted has arrived, so with the reliable channel stuck this game stopped and still reported
+        // being 0 ticks behind, and the server never paused for it (2026-10-22)
+        int ticksBehind = Math.Max(TickPatch.tickUntil, Multiplayer.session?.remoteTickUntil ?? 0) - TickPatch.Timer;
 
         connection.Send(new ClientKeepAlivePacket(packet.id, ticksBehind, TickPatch.Simulating, TickPatch.workTicks),
             false);

@@ -31,6 +31,19 @@ public class PerfTimelineTest
     }
 
     [Test]
+    public void StalePlayerGetsAMarkedLineEverySecond()
+    {
+        var timeline = new PerfTimeline(null);
+        RunSecond(timeline, 16f, 20f);
+
+        // Blake's frame time is frozen at its last value; the line says the connection is quiet
+        for (int i = 0; i < MultiplayerServer.NetTicksPerSecond; i++)
+            timeline.Sample([("host", 16f), ("Blake", 20f)]);
+        var lines = timeline.Second(["host", "Blake"], 16.7f, At, [("Blake", 7.4)]);
+        Assert.That(lines, Is.EqualTo(new[] { "12:00:05 Blake 20.0 20.0 16.7 STALE 7s" }));
+    }
+
+    [Test]
     public void HeartbeatNamesEveryPlayer()
     {
         var timeline = new PerfTimeline(null);

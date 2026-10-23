@@ -151,6 +151,61 @@ namespace Multiplayer.Client
         public void Update()
         {
             locationPings.UpdatePing();
+            WatchConnection();
+        }
+
+        private readonly Stopwatch sinceTrafficLog = Stopwatch.StartNew();
+        private bool quietWarned;
+        private readonly Stopwatch waitingForCmds = new();
+        private bool waitingWarned;
+
+        /// <summary>
+        /// This game's side of a connection that goes quiet (see ConnectionWatch on the server): a warning when the
+        /// server sends nothing for 5 s or the commands the server counted don't arrive for 5 s (this game stops at
+        /// its limit then), and the traffic counters every 30 s.
+        /// </summary>
+        private void WatchConnection()
+        {
+            var conn = Multiplayer.Client;
+            // The host's own connection is in-process
+            if (conn == null || Multiplayer.LocalServer != null) return;
+
+            var age = conn.LastReceivedAgeMs;
+            if (age > ConnectionWatch.StaleMs && !quietWarned)
+            {
+                quietWarned = true;
+                MpLog.Warn($"Connection: nothing from the server for {age} ms ({conn.TrafficText}); timer {TickPatch.Timer}, limit {TickPatch.tickUntil}");
+            }
+            else if (age <= ConnectionWatch.StaleMs && quietWarned)
+            {
+                quietWarned = false;
+                MpLog.Log($"Connection: the server is sending again ({conn.TrafficText})");
+            }
+
+            if (receivedCmds < remoteSentCmds)
+            {
+                if (!waitingForCmds.IsRunning) waitingForCmds.Restart();
+                if (!waitingWarned && waitingForCmds.ElapsedMilliseconds > ConnectionWatch.StaleMs)
+                {
+                    waitingWarned = true;
+                    MpLog.Warn($"Connection: waiting {waitingForCmds.ElapsedMilliseconds} ms for {remoteSentCmds - receivedCmds} commands the server counted; " +
+                               $"this game stays at timer {TickPatch.Timer}, limit {TickPatch.tickUntil} (the server's {remoteTickUntil}); {conn.TrafficText}");
+                }
+            }
+            else if (waitingForCmds.IsRunning)
+            {
+                if (waitingWarned)
+                    MpLog.Log($"Connection: the commands arrived after {waitingForCmds.ElapsedMilliseconds} ms");
+                waitingForCmds.Reset();
+                waitingWarned = false;
+            }
+
+            if (sinceTrafficLog.ElapsedMilliseconds > 30_000)
+            {
+                sinceTrafficLog.Restart();
+                MpLog.Log($"Connection: {conn.TrafficText}; commands {receivedCmds} of {remoteSentCmds}, timer {TickPatch.Timer}, " +
+                          $"limit {TickPatch.tickUntil} (the server's {remoteTickUntil})");
+            }
         }
     }
 }

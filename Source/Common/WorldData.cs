@@ -21,6 +21,8 @@ public class WorldData
     public Dictionary<int, List<byte[]>> mapCmds = new(); // Map id to serialized cmds list
     public Dictionary<int, List<byte[]>>? tmpMapCmds;
     public int lastJoinPointAtTick = -1;
+    // When the last join point was done (Environment.TickCount64), for leaving the games' reloads alone
+    public long joinPointEndedAtMs = long.MinValue / 2;
 
     public List<byte[]> syncInfos = new();
 
@@ -90,6 +92,7 @@ public class WorldData
         mapCmds = tmpMapCmds!;
         tmpMapCmds = null;
         lastJoinPointAtTick = currentTick;
+        joinPointEndedAtMs = Environment.TickCount64;
 
         if (Server.IsStandaloneServer && Server.persistence != null)
         {

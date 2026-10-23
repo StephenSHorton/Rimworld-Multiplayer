@@ -113,6 +113,9 @@ namespace Multiplayer.Common
 
         public int NetTimer { get; private set; }
 
+        public readonly ConnectionWatch connectionWatch = new();
+        private const int TrafficLogEverySeconds = 30;
+
         public bool IsStandaloneServer { get; set; }
         public StandalonePersistence? persistence;
 
@@ -166,7 +169,7 @@ namespace Multiplayer.Common
                     while (!HostLed && realTime > 0 && ticked < 2)
                     {
                         playersBehind.Clear();
-                        playersBehind.AddRange(PlayingIngamePlayers.Where(p => p.ExtrapolatedTicksBehind > 90));
+                        playersBehind.AddRange(PlayingIngamePlayers.Where(p => p.ExtrapolatedTicksBehind > 90 || connectionWatch.IsStale(p.id)));
                         if (!freezeManager.Frozen &&
                             gameTimer < holdTimerAt &&
                             PlayingPlayers.Any(p => p.ExtrapolatedTicksBehind < 40) &&
@@ -229,9 +232,10 @@ namespace Multiplayer.Common
         // frozen or held (debug freeze); the pace slows the way the server clock used to when players fall behind
         private void TickHostLed()
         {
-            var behind = PlayingIngamePlayers.Where(p => !p.IsHost && p.ExtrapolatedTicksBehind > 90).ToList();
+            var behind = PlayingIngamePlayers.Where(p => !p.IsHost && (p.ExtrapolatedTicksBehind > 90 || connectionWatch.IsStale(p.id))).ToList();
             if (behind.Any() && NetTimer % NetTicksPerSecond == 0)
-                ServerLog.Log($"Simulation paused because some players are too far behind: {behind.Join(p => p.Username)}");
+                ServerLog.Log($"Simulation paused because some players are too far behind: " +
+                              behind.Join(p => connectionWatch.IsStale(p.id) ? $"{p.Username} (no packet for {p.conn.LastReceivedAgeMs} ms)" : p.Username));
 
             if (!freezeManager.Frozen && !behind.Any())
             {
@@ -247,7 +251,10 @@ namespace Multiplayer.Common
             NetTimer++;
 
             if (NetTimer % NetTicksPerSecond == 0)
+            {
                 playerManager.SendLatencies();
+                CheckConnections();
+            }
 
 
             if (NetTimer % (NetTicksPerSecond / 5) == 0)
@@ -294,7 +301,45 @@ namespace Multiplayer.Common
             {
                 perfTimeline.Sample(PlayingIngamePlayers.Select(p => (p.Username, p.frameTime)));
                 if (NetTimer % NetTicksPerSecond == 0)
-                    perfTimeline.Second(PlayingIngamePlayers.Select(p => p.Username), serverTimePerTick, DateTime.Now);
+                    perfTimeline.Second(PlayingIngamePlayers.Select(p => p.Username), serverTimePerTick, DateTime.Now,
+                        PlayingIngamePlayers.Where(p => connectionWatch.IsStale(p.id))
+                            .Select(p => (p.Username, p.conn.LastReceivedAgeMs / 1000.0)).ToList());
+            }
+        }
+
+        /// <summary>Once a second: a playing game that went quiet pauses everyone (see <see cref="ConnectionWatch"/>).</summary>
+        private void CheckConnections()
+        {
+            var watched = PlayingIngamePlayers.Where(p => !p.IsHost).ToList();
+            connectionWatch.Keep(watched.Select(p => p.id).ToHashSet());
+
+            bool grace = worldData.CreatingJoinPoint ||
+                         Environment.TickCount64 - worldData.joinPointEndedAtMs < ConnectionWatch.JoinPointGraceMs;
+            bool logTraffic = NetTimer % (NetTicksPerSecond * TrafficLogEverySeconds) == 0;
+
+            foreach (var player in watched)
+            {
+                var age = player.conn.LastReceivedAgeMs;
+                switch (connectionWatch.Check(player.id, age, grace))
+                {
+                    case ConnectionWatch.Change.Lost:
+                        ServerLog.Log($"{player.Username}: connection lost, waiting ({player.conn.TrafficText})");
+                        SendNotification("MpPlayerConnectionLost", player.Username, $"{age / 1000}");
+                        break;
+                    case ConnectionWatch.Change.Back:
+                        ServerLog.Log($"{player.Username}: connection back ({player.conn.TrafficText})");
+                        SendNotification("MpPlayerConnectionBack", player.Username);
+                        break;
+                    case ConnectionWatch.Change.Drop:
+                        ServerLog.Log($"{player.Username}: no packet for {age / 1000} s, dropping them so they can rejoin ({player.conn.TrafficText})");
+                        SendNotification("MpPlayerConnectionDropped", player.Username, $"{age / 1000}");
+                        connectionWatch.Forget(player.id);
+                        playerManager.SetDisconnected(player.conn, MpDisconnectReason.NetFailed);
+                        continue;
+                }
+
+                if (logTraffic)
+                    ServerLog.Log($"Connection {player.Username}: {player.conn.TrafficText}, {player.ExtrapolatedTicksBehind} ticks behind");
             }
         }
 
