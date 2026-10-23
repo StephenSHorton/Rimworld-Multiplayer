@@ -58,7 +58,7 @@ namespace Multiplayer.Common
                 factionId,
                 mapId,
                 sourcePlayer?.id ?? fauxSource?.id ?? ScheduledCommand.NoPlayer,
-                data);
+                data) { seq = SentCmds + 1 };
             byte[] toSave = ScheduledCommand.Serialize(cmd);
 
             // todo cull target players if not global

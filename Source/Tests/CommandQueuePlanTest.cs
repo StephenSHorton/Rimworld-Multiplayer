@@ -27,6 +27,44 @@ public class CommandQueuePlanTest
     }
 
     [Test]
+    public void SameTickCommandsRunInTheOrderTheyArrivedAcrossLists()
+    {
+        // 2026-10-23: the host ran time speed, designator (map 0), drafts (map 0), player count, time speed at one
+        // tick; the joiner's rebuild put the world's three first and desynced on the commands' random state
+        ScheduledCommand Seq(int mapId, byte tag, long seq) => new(CommandType.Sync, 721, 1, mapId, 2, [tag]) { seq = seq };
+        var snapshot = new Dictionary<int, List<ScheduledCommand>>
+        {
+            [ScheduledCommand.Global] = [Seq(-1, 1, 10), Seq(-1, 5, 14), Seq(-1, 6, 15)],
+            [0] = [Seq(0, 2, 11), Seq(0, 3, 12), Seq(0, 4, 13)],
+        };
+
+        var plan = CommandQueuePlan.Build(snapshot, [0], timer: 700, singleQueue: true);
+
+        Assert.That(plan.world.Select(c => c.data[0]), Is.EqualTo(new byte[] { 1, 2, 3, 4, 5, 6 }));
+    }
+
+    [Test]
+    public void ACommandsSeqSurvivesSerializingAndOldCommandsReadAsZero()
+    {
+        var cmd = new ScheduledCommand(CommandType.Sync, 5, 1, 0, 2, [7]) { seq = 1234567890123 };
+        var back = ScheduledCommand.Deserialize(new ByteReader(ScheduledCommand.Serialize(cmd)));
+        Assert.That(back.seq, Is.EqualTo(1234567890123));
+        Assert.That(back.data, Is.EqualTo(new byte[] { 7 }));
+
+        // The format before protocol 64, as in older replays and desync zips
+        var writer = new ByteWriter();
+        writer.WriteEnum(CommandType.Sync);
+        writer.WriteInt32(5);
+        writer.WriteInt32(1);
+        writer.WriteInt32(0);
+        writer.WriteInt32(2);
+        writer.WritePrefixedBytes([7]);
+        var old = ScheduledCommand.Deserialize(new ByteReader(writer.ToArray()));
+        Assert.That(old.seq, Is.EqualTo(0));
+        Assert.That(old.ticks, Is.EqualTo(5));
+    }
+
+    [Test]
     public void EachMapGetsItsOwnQueueWithoutConsistentOrder()
     {
         var snapshot = new Dictionary<int, List<ScheduledCommand>>

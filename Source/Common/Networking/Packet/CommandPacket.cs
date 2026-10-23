@@ -8,6 +8,7 @@ public record struct ServerCommandPacket : IPacket
     public int factionId;
     public int mapId;
     public int playerId;
+    public long seq;
     public byte[] data;
 
     public static ServerCommandPacket From(ScheduledCommand cmd) => new()
@@ -17,11 +18,12 @@ public record struct ServerCommandPacket : IPacket
         factionId = cmd.factionId,
         mapId = cmd.mapId,
         playerId = cmd.playerId,
+        seq = cmd.seq,
         data = cmd.data
     };
 
     public ScheduledCommand ToCommand() => new(type: type, ticks: ticks, factionId: factionId, mapId: mapId,
-        playerId: playerId, data: data);
+        playerId: playerId, data: data) { seq = seq };
 
     public void Bind(PacketBuffer buf)
     {
@@ -30,6 +32,7 @@ public record struct ServerCommandPacket : IPacket
         buf.Bind(ref factionId);
         buf.Bind(ref mapId);
         buf.Bind(ref playerId);
+        buf.Bind(ref seq);
         buf.BindRemaining(ref data, maxLength: 65535);
     }
 }

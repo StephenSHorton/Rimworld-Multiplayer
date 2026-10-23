@@ -132,9 +132,14 @@ namespace Multiplayer.Client
         }
 
         [TweakValue("Multiplayer")] public static bool consistentCommandOrder = true;
+        private long localCmdSeq;
         public void ScheduleCommand(ScheduledCommand cmd)
         {
             MpLog.Debug(cmd.ToString());
+            // The host runs its own commands before the server counts them, so its order is the one it scheduled
+            // them in; a client keeps the server's count, which is the order the server sent them to everyone
+            if (Multiplayer.LocalServer != null)
+                cmd.seq = ++localCmdSeq;
             dataSnapshot.MapCmds.GetOrAddNew(cmd.mapId).Add(cmd);
 
             if (Current.ProgramState != ProgramState.Playing) return;

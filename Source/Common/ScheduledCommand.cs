@@ -15,6 +15,11 @@ namespace Multiplayer.Common
         public readonly int playerId = playerId;
         public readonly byte[] data = data;
 
+        // The order commands with the same tick run in. A joiner rebuilds its queues from per-map lists, which
+        // don't say whether a world command or a map command at the same tick came first; sorting by this puts
+        // them back the way they arrived (the server's count on a client, the host's own count on the host)
+        public long seq;
+
         public override string ToString() =>
             $"Cmd: {type}, faction: {factionId}, map: {mapId}, ticks: {ticks}, player: {playerId}";
 
@@ -27,6 +32,7 @@ namespace Multiplayer.Common
             writer.WriteInt32(cmd.mapId);
             writer.WriteInt32(cmd.playerId);
             writer.WritePrefixedBytes(cmd.data);
+            writer.WriteLong(cmd.seq);
 
             return writer.ToArray();
         }
@@ -39,8 +45,10 @@ namespace Multiplayer.Common
             int mapId = data.ReadInt32();
             int playerId = data.ReadInt32();
             byte[] extraBytes = data.ReadPrefixedBytes()!;
+            // Replays and desync zips from before protocol 64 end here
+            long seq = data.Left >= 8 ? data.ReadLong() : 0;
 
-            return new ScheduledCommand(cmd, ticks, factionId, mapId, playerId, extraBytes);
+            return new ScheduledCommand(cmd, ticks, factionId, mapId, playerId, extraBytes) { seq = seq };
         }
 
         public static List<ScheduledCommand> DeserializeCmds(byte[] data)

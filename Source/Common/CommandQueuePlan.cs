@@ -48,8 +48,10 @@ public static class CommandQueuePlan
 
         var seen = new HashSet<ScheduledCommand>(ReferenceEqualityComparer.Instance);
 
-        // The world's list first, then the maps in tick loop order: the order equal ticks ran in when each list had
-        // its own queue. Which of two lists' commands at the same tick came first isn't in the snapshot.
+        // Equal ticks run in the order the commands arrived (ScheduledCommand.seq), across the lists: the world's list
+        // first and then the maps' put a tick's map commands after its world commands, which ran the host's
+        // designator after a time speed change it came before (2026-10-23, every join under a command flood desynced
+        // on "Random state from commands"). Commands with no seq (replays from before protocol 64) keep this order.
         var keys = new List<int>();
         if (snapshot.ContainsKey(ScheduledCommand.Global)) keys.Add(ScheduledCommand.Global);
         keys.AddRange(loadedMaps.Where(snapshot.ContainsKey));
@@ -88,10 +90,10 @@ public static class CommandQueuePlan
             }
         }
 
-        // Stable: equal ticks keep the order above
-        result.world.AddRange(world.OrderBy(c => c.ticks));
+        // Stable: equal ticks and seqs keep the order above
+        result.world.AddRange(world.OrderBy(c => c.ticks).ThenBy(c => c.seq));
         foreach (var (map, cmds) in maps)
-            result.maps[map].AddRange(cmds.OrderBy(c => c.ticks));
+            result.maps[map].AddRange(cmds.OrderBy(c => c.ticks).ThenBy(c => c.seq));
 
         return result;
     }
