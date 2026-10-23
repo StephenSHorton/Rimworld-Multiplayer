@@ -571,6 +571,8 @@ namespace Multiplayer.Client.Desyncs
 
             var details = new List<string>();
             var full = new System.Text.StringBuilder();
+            // Changes the reload itself makes on every game (ids it hands out), kept in the file but only warned about
+            var reloadOnly = new List<string>();
             foreach (var key in changed.ToList())
                 if (key.StartsWith("world / ", StringComparison.Ordinal))
                 {
@@ -589,6 +591,11 @@ namespace Multiplayer.Client.Desyncs
                         // Who took them: every job and thing id since the join point's save started
                         var ids = IdLedger.Since(idMarkBefore);
                         full.Append($"=== ids taken by the reload ({ids.Count}, oldest first)\n{(ids.Count == 0 ? "(none recorded)" : string.Join("\n", ids))}\n\n");
+                        // Nothing ticks between the save and this check, so ids taken since are the load's own (vanilla
+                        // restarting jobs in PostLoadInit, a HaulToCell postfix): a joiner loading the same save takes the
+                        // same ones. Only counters that went up, with ids on record to show for it, count as that.
+                        if (ids.Count > 0 && lines.Where(l => l.EndsWith("CHANGED")).All(CounterWentUp))
+                            reloadOnly.Add(key);
                     }
                 }
                 else if (leavesBefore != null && leavesBefore.TryGetValue(key, out var before))
@@ -622,6 +629,7 @@ namespace Multiplayer.Client.Desyncs
             }
 
             var written = false;
+            bool onlyReload = changed.All(reloadOnly.Contains);
             try
             {
                 System.IO.Directory.CreateDirectory(Multiplayer.DesyncsDir);
@@ -635,9 +643,23 @@ namespace Multiplayer.Client.Desyncs
                 MpLog.Error($"Couldn't write the join point self-check: {e}");
             }
 
+            if (onlyReload)
+            {
+                MpLog.Warn($"Join point self-check: reloading took new ids ({string.Join(", ", changed)}), which every game loading " +
+                           "this save does the same way." + (written ? $" Listed in {selfCheckPath}" : "") + $"\n{string.Join("\n", details)}");
+                return;
+            }
+
             MpLog.Error($"Join point self-check: saving and reloading changed {string.Join(", ", changed)}. Some state the " +
                         $"simulation uses isn't saved (or is rebuilt differently), so a joiner's game will differ there." +
                         (written ? $" The full diff is in {selfCheckPath}" : "") + $"\n{string.Join("\n", details)}");
+        }
+
+        // "ids.nextJobID: 697672 -> 697673  CHANGED"
+        private static bool CounterWentUp(string line)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(line, @": (-?\d+) -> (-?\d+)");
+            return m.Success && long.Parse(m.Groups[2].Value) > long.Parse(m.Groups[1].Value);
         }
 
         private static void WriteDroppedJobsOnly(string droppedSection, string selfCheckPath)
@@ -726,6 +748,9 @@ namespace Multiplayer.Client.Desyncs
             {
                 case "path":
                     return va == "True" && vb == "False";
+                case "next":
+                    // The next cell comes from the path, which the save drops (path True to False above)
+                    return fa.TryGetValue("path", out var pa) && pa == "True" && fb.TryGetValue("path", out var pb) && pb == "False";
                 case "dest":
                     return vb == "(0,0)" && fa.TryGetValue("moving", out var ma) && ma == "False" &&
                            fb.TryGetValue("moving", out var mb) && mb == "False";
