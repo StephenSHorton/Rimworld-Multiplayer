@@ -390,18 +390,25 @@ public class AsyncWorldTimeComp : IExposable, ITickable
 
     private static void CreateJoinPointAndSendIfHost()
     {
+        // Every game freezes for the whole join point; on 2026-10-23 a two-colony test map took 8-14 s each time with
+        // nothing in the log saying where it went. The steps are timed and logged in one line at the end.
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
         // Self-check: the same lanes before saving and after reloading, or some state isn't saved
         var (lanesBefore, leavesBefore) = TickPatch.Simulating || Multiplayer.IsReplay
             ? (null, null)
             : Desyncs.JoinFingerprint.BeforeJoinPoint();
+        long beforeMs = watch.ElapsedMilliseconds;
 
         Multiplayer.session.dataSnapshot = SaveLoad.SaveReloadAndCreateSnapshot(
             Multiplayer.GameComp.multifaction,
             ReloadOptimizationMode.ForJoinPointSnapshot
         );
+        long reloadMs = watch.ElapsedMilliseconds - beforeMs;
 
         if (!TickPatch.Simulating && !Multiplayer.IsReplay)
             Desyncs.JoinFingerprint.AfterJoinPoint(lanesBefore, leavesBefore);
+        long afterMs = watch.ElapsedMilliseconds - beforeMs - reloadMs;
 
         if (!TickPatch.Simulating && !Multiplayer.IsReplay)
         {
@@ -418,6 +425,11 @@ public class AsyncWorldTimeComp : IExposable, ITickable
                 SaveLoad.SendGameData(Multiplayer.session.dataSnapshot, true);
             }
         }
+
+        long total = watch.ElapsedMilliseconds;
+        MpLog.Log($"Join point took {total} ms: self-check lanes before {beforeMs}, save {SaveLoad.lastSaveMs}, reload {SaveLoad.lastLoadMs}, " +
+                  $"snapshot and section hashes {reloadMs - SaveLoad.lastSaveMs - SaveLoad.lastLoadMs}, self-check after {afterMs}, " +
+                  $"send {total - beforeMs - reloadMs - afterMs}");
     }
 
     public void SetTimeEverywhere(TimeSpeed speed)

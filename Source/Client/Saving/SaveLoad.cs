@@ -32,6 +32,9 @@ namespace Multiplayer.Client
             return data;
         }
 
+        /// <summary>How long the last save-and-reload spent saving and loading (the join point timing line reads them).</summary>
+        public static long lastSaveMs, lastLoadMs;
+
         private static TempGameData SaveAndReloadCore(ReloadOptimizationMode optimizationMode)
         {
             Multiplayer.reloading = true;
@@ -63,7 +66,9 @@ namespace Multiplayer.Client
                 // Faction.OfPlayer gets set to initially during loading (in FactionManager.ExposeData -> RecacheFactions)
                 if (Multiplayer.GameComp.multifaction)
                     Multiplayer.game.ChangeRealPlayerFaction(Find.FactionManager.AllFactions.First(f => f.IsPlayer), false);
+                var saveWatch = System.Diagnostics.Stopwatch.StartNew();
                 gameData = SaveGameData();
+                lastSaveMs = saveWatch.ElapsedMilliseconds;
             }
 
             MusicManagerPlay musicManager = null;
@@ -76,7 +81,9 @@ namespace Multiplayer.Client
                 musicManager = Find.MusicManagerPlay;
             }
 
+            var loadWatch = System.Diagnostics.Stopwatch.StartNew();
             LoadInMainThread(gameData);
+            lastLoadMs = loadWatch.ElapsedMilliseconds;
 
             if (musicManager != null)
                 Current.Root_Play.musicManagerPlay = musicManager;

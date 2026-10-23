@@ -5,6 +5,8 @@ using System.Linq;
 using System.Text;
 using HarmonyLib;
 using Multiplayer.Client.Util;
+using UnityEngine;
+using RimWorld;
 using Verse;
 using Verse.AI;
 
@@ -24,8 +26,9 @@ namespace Multiplayer.Client.Desyncs
         private const int Kept = 8192;
         private const int Frames = 8;
 
-        private readonly struct Entry(char kind, int tick, int timer, ThingDef def, int pawnId, int a, int b, IntVec3 from, Thing destThing, IntVec3 destCell, StackTrace stack)
+        private readonly struct Entry(char kind, int tick, int timer, ThingDef def, int pawnId, int a, int b, IntVec3 from, Thing destThing, IntVec3 destCell, StackTrace stack, string face = null)
         {
+            public readonly string face = face;
             public readonly char kind = kind;
             public readonly int tick = tick;
             public readonly int timer = timer;
@@ -57,10 +60,34 @@ namespace Multiplayer.Client.Desyncs
             Enabled = Multiplayer.Client != null && FlagFile;
         }
 
+        // What Pawn_RotationTracker.Face was given while it sets a rotation: the point, the pawn's own DrawPos and
+        // the target FaceTarget or a busy stance passed. The ledger named the turn that split on 2026-10-22 and
+        // 2026-10-23 (Face < FaceTarget < UpdateRotation from ProcessPostTickVisuals, 1->3 on the host and 1->0 on
+        // the client) but not which of its inputs differed; these say which one does.
+        private static int faceDepth;
+        private static Vector3 faceP;
+        private static Vector3 faceSelf;
+        private static LocalTargetInfo faceTarget = LocalTargetInfo.Invalid;
+
+        private static string FaceInputs(Pawn pawn)
+        {
+            if (faceDepth == 0) return null;
+            var target = faceTarget;
+            if (!target.IsValid && pawn.stances?.curStance is Stance_Busy busy && busy.focusTarg.IsValid)
+                target = busy.focusTarg;
+            var t = !target.IsValid ? "none" :
+                target.HasThing ? $"{target.Thing.ThingID}@({target.Thing.Position.x},{target.Thing.Position.z}) drawPos={V(target.Thing.DrawPos)}" :
+                $"({target.Cell.x},{target.Cell.z})";
+            return $"face p={V(faceP)} self={V(faceSelf)} angle={(faceP - faceSelf).AngleFlat():F4} target={t}";
+        }
+
+        private static string V(Vector3 v) => $"({v.x:F4},{v.z:F4})";
+
         private static void Record(char kind, Pawn pawn, int a, int b, IntVec3 from, LocalTargetInfo dest)
         {
             entries[next] = new Entry(kind, Find.TickManager?.TicksGame ?? -1, TickPatch.Timer, pawn.def, pawn.thingIDNumber, a, b, from,
-                dest.HasThing ? dest.Thing : null, dest.HasThing ? IntVec3.Invalid : dest.Cell, new StackTrace(2, false));
+                dest.HasThing ? dest.Thing : null, dest.HasThing ? IntVec3.Invalid : dest.Cell, new StackTrace(2, false),
+                kind == 'R' ? FaceInputs(pawn) : null);
             next = (next + 1) % Kept;
             if (count < Kept) count++;
         }
@@ -68,7 +95,7 @@ namespace Multiplayer.Client.Desyncs
         private static string Describe(in Entry e)
         {
             if (e.kind == 'R')
-                return $"rot {e.a}->{e.b}";
+                return $"rot {e.a}->{e.b}" + (e.face != null ? " " + e.face : "");
             var dest = e.destThing != null ? $"{e.destThing.ThingID}@({e.destThing.Position.x},{e.destThing.Position.z})" :
                 e.destCell.IsValid ? $"({e.destCell.x},{e.destCell.z})" : "none";
             return $"path from ({e.from.x},{e.from.z}) to {dest} peMode={(PathEndMode)e.a}";
@@ -126,6 +153,34 @@ namespace Multiplayer.Client.Desyncs
             {
                 MpLog.Error($"Couldn't write the steering ledger: {e}");
             }
+        }
+
+        [HarmonyPatch(typeof(Pawn_RotationTracker), nameof(Pawn_RotationTracker.Face))]
+        static class FacePatch
+        {
+            static void Prefix(Pawn_RotationTracker __instance, Vector3 p)
+            {
+                if (!Enabled) return;
+                faceDepth++;
+                faceP = p;
+                faceSelf = __instance.pawn.DrawPos;
+            }
+
+            static void Finalizer()
+            {
+                if (faceDepth > 0) faceDepth--;
+            }
+        }
+
+        [HarmonyPatch(typeof(Pawn_RotationTracker), nameof(Pawn_RotationTracker.FaceTarget))]
+        static class FaceTargetPatch
+        {
+            static void Prefix(LocalTargetInfo target)
+            {
+                if (Enabled) faceTarget = target;
+            }
+
+            static void Finalizer() => faceTarget = LocalTargetInfo.Invalid;
         }
 
         [HarmonyPatch(typeof(Thing), nameof(Thing.Rotation), MethodType.Setter)]

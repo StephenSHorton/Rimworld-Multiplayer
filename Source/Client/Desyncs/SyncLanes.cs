@@ -241,6 +241,10 @@ namespace Multiplayer.Client
             return Mix(h);
         }
 
+        // Depth at the save's precision (SnowGrid.SnowFloatToShort: clamped to 0..1, rounded to 1/65535). The raw
+        // float bits changed at every join point where snow was falling or melting, so the self-check reported
+        // "map N / snow" as state the save doesn't keep (2026-10-23, two-colony playtest), when every game loads the
+        // same rounded depths. A difference between games bigger than one step still shows.
         private static ulong SnowLane(Map map)
         {
             var depth = map.snowGrid.DepthGrid_Unsafe;
@@ -248,7 +252,7 @@ namespace Multiplayer.Client
             unchecked
             {
                 for (int i = 0; i < depth.Length; i++)
-                    h = (h ^ (ulong)(uint)BitConverter.SingleToInt32Bits(depth[i])) * 0x100000001B3UL;
+                    h = (h ^ (ulong)(uint)UnityEngine.Mathf.RoundToInt(UnityEngine.Mathf.Clamp01(depth[i]) * 65535f)) * 0x100000001B3UL;
             }
             return Mix(h);
         }
