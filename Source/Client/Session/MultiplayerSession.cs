@@ -146,15 +146,20 @@ namespace Multiplayer.Client
                 HostLedClock.InsertInTickOrder(Multiplayer.AsyncWorldTime.Cmds, cmd);
             else if (cmd.GetMap() is { } map)
                 HostLedClock.InsertInTickOrder(map.AsyncTime().Cmds, cmd);
+            else
+                // A map this game hasn't made yet (a caravan's or a quest's map the host made a few ticks ahead):
+                // maps no longer take their snapshot list when they are made, and the tick loop runs a world queue
+                // command on the map it names (TickPatch.RunCmds), which exists by the command's tick
+                HostLedClock.InsertInTickOrder(Multiplayer.AsyncWorldTime.Cmds, cmd);
         }
 
         public void Update()
         {
             locationPings.UpdatePing();
-            WatchConnection();
         }
 
         private readonly Stopwatch sinceTrafficLog = Stopwatch.StartNew();
+        private readonly Stopwatch sinceLastWatch = Stopwatch.StartNew();
         private bool quietWarned;
         private readonly Stopwatch waitingForCmds = new();
         private bool waitingWarned;
@@ -162,13 +167,24 @@ namespace Multiplayer.Client
         /// <summary>
         /// This game's side of a connection that goes quiet (see ConnectionWatch on the server): a warning when the
         /// server sends nothing for 5 s or the commands the server counted don't arrive for 5 s (this game stops at
-        /// its limit then), and the traffic counters every 30 s.
+        /// its limit then), and the traffic counters every 30 s. Every frame from OnMainThread.Update after the
+        /// connection has read its packets, so a frame after a long block (a join point's save and reload, a map
+        /// being made) sees the packets that queued up during it; a frame that itself came more than 5 s after the
+        /// last one is not judged at all, since this game, not the server, was the one that stopped.
         /// </summary>
-        private void WatchConnection()
+        public void WatchConnection()
         {
             var conn = Multiplayer.Client;
             // The host's own connection is in-process
             if (conn == null || Multiplayer.LocalServer != null) return;
+
+            var frameGap = sinceLastWatch.ElapsedMilliseconds;
+            sinceLastWatch.Restart();
+            if (frameGap > ConnectionWatch.StaleMs)
+            {
+                if (waitingForCmds.IsRunning) waitingForCmds.Restart();
+                return;
+            }
 
             var age = conn.LastReceivedAgeMs;
             if (age > ConnectionWatch.StaleMs && !quietWarned)

@@ -15,6 +15,10 @@ namespace Multiplayer.Common
         [PacketHandler(Packets.Client_RequestRejoin)]
         public void HandleRejoin(ByteReader data)
         {
+            // Loading again (a resync, the debug reset) until its WorldReady, as on its first join: a game that is
+            // changing scenes answers no keepalives, and still counted as playing it was announced as a lost
+            // connection after 5 s and dropped after the connection watch's limit
+            Player.UpdateStatus(PlayerStatus.Simulating);
             connection.ChangeState(ConnectionStateEnum.ServerLoading);
             Player.ResetTimeVotes();
             Server.referee.OnPlayerReset(Player);

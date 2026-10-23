@@ -58,6 +58,9 @@ namespace Multiplayer.Client
                     Multiplayer.StopMultiplayer();
                 }
             }
+
+            // After the packets are read: a frame after a long block judges the server by what queued up during it
+            Multiplayer.session?.WatchConnection();
         }
 
         public void OnApplicationQuit()

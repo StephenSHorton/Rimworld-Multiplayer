@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using Multiplayer.Client.Util;
 using Multiplayer.Common;
+using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Networking.Packet;
 using Multiplayer.Common.Util;
 using RimWorld;
@@ -29,6 +30,7 @@ namespace Multiplayer.Client.Desyncs
         {
             public ServerSyncVerdictPacket verdict;
             public Stopwatch since;
+            public string commands;
         }
 
         private static readonly List<Pending> pending = new();
@@ -37,8 +39,23 @@ namespace Multiplayer.Client.Desyncs
         {
             RandAttribution.Freeze(verdict.tick);
             if (pending.Any(p => p.verdict.playerId == verdict.playerId && p.verdict.tick == verdict.tick)) return;
-            pending.Add(new Pending { verdict = verdict, since = Stopwatch.StartNew() });
+
+            // The host's side of the commands each game ran, next to the player's own list (its log and
+            // local_commands.txt), so the one only one game ran is named. Taken now: the log is a ring that keeps
+            // rolling while the report waits for the Rand attribution diff. The host doesn't know the player's last
+            // valid tick, so from 300 ticks before the window.
+            var commands = SaveableDesyncInfo.CommandReport(verdict.tick, -1);
+            if (FromCommands(verdict))
+                MpLog.Log($"Host's commands for {verdict.username}'s desync at tick {verdict.tick}:\n{commands}");
+
+            pending.Add(new Pending { verdict = verdict, since = Stopwatch.StartNew(), commands = commands });
         }
+
+        /// <summary>A clock or a command count that differs: both come from the commands one game ran.</summary>
+        private static bool FromCommands(ServerSyncVerdictPacket verdict) =>
+            verdict.lane == "time" ||
+            (verdict.message?.Contains(OpinionComparer.CommandsDiffText) ?? false) ||
+            (verdict.extra ?? []).Any(e => e?.Contains(OpinionComparer.CommandsDiffText) ?? false);
 
         /// <summary>Every frame.</summary>
         public static void Update()
@@ -48,11 +65,11 @@ namespace Multiplayer.Client.Desyncs
                 var p = pending[i];
                 if (RandAttrReports.ForWindow(p.verdict.tick) == null && p.since.Elapsed.TotalSeconds < MaxWaitSeconds) continue;
                 pending.RemoveAt(i);
-                Write(p.verdict);
+                Write(p.verdict, p.commands);
             }
         }
 
-        private static void Write(ServerSyncVerdictPacket verdict)
+        private static void Write(ServerSyncVerdictPacket verdict, string commands)
         {
             try
             {
@@ -90,6 +107,7 @@ namespace Multiplayer.Client.Desyncs
 
                     var sync = Multiplayer.game?.sync;
                     Entry("local_flight_recorder.txt", () => sync?.recorder.Dump() ?? "No game");
+                    Entry("local_commands.txt", () => commands);
                     RandAttrReports.AddToZip(zip, verdict.tick, Multiplayer.username);
                     Entry("entity_diffs.txt", () => LeafRequests.recentDiffs.Count > 0 ? string.Join("\n\n", LeafRequests.recentDiffs) : "No entity diffs");
                     Entry("local_traces.txt", () =>

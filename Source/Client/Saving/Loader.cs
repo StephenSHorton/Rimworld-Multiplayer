@@ -106,9 +106,8 @@ public static class Loader
     {
         if (Multiplayer.session?.dataSnapshot == null || Multiplayer.game == null) return;
 
-        var loaded = Find.Maps.Select(m => m.uniqueID).ToHashSet();
         var missing = CommandQueuePlan.Missing(Multiplayer.session.dataSnapshot.MapCmds,
-            TickPatch.AllTickables.Select(t => (IEnumerable<ScheduledCommand>)t.Cmds), loaded, TickPatch.Timer);
+            TickPatch.AllTickables.Select(t => (IEnumerable<ScheduledCommand>)t.Cmds), TickPatch.Timer);
         if (missing.Count == 0) return;
 
         Log.Error($"{missing.Count} commands {when} are in the snapshot but in no queue at timer {TickPatch.Timer}; " +

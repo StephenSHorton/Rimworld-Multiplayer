@@ -12,8 +12,9 @@ namespace Multiplayer.Client.Desyncs
 {
     /// <summary>
     /// Every pawn rotation change and path request with a short stack, so that when two games' pawns face or walk
-    /// different ways the code that turned or sent one of them can be named. Dev mode (or a file
-    /// <c>MpSteeringLedger.flag</c> in the save data folder) turns it on; off, each patch returns at its first line.
+    /// different ways the code that turned or sent one of them can be named. A file
+    /// <c>MpSteeringLedger.flag</c> in the save data folder turns it on (dev mode alone no longer does: a stack per
+    /// rotation change and path request cost Blake's game several ms a tick); off, each patch returns at its first line.
     /// The patches are applied on every game either way, so the Harmony patches row of the join fingerprint stays
     /// the same. When the server's leaf diff for a map's pawns or things lane arrives (both games get it), each game
     /// writes the entries of the pawns the diff names to MpDesyncs/steering-[player]-[tick]-[lane].txt.
@@ -53,7 +54,7 @@ namespace Multiplayer.Client.Desyncs
         // It was read once per process, and with a stack per rotation change it can cost several ms a tick.
         public static void Refresh()
         {
-            Enabled = Multiplayer.Client != null && (Prefs.DevMode || FlagFile);
+            Enabled = Multiplayer.Client != null && FlagFile;
         }
 
         private static void Record(char kind, Pawn pawn, int a, int b, IntVec3 from, LocalTargetInfo dest)
@@ -83,7 +84,7 @@ namespace Multiplayer.Client.Desyncs
             if (!Enabled)
             {
                 // The other game may write its file; say why this one has none
-                MpLog.Log($"Steering ledger off on this game, no file for the map {mapId} / {lane} leaf diff at timer tick {tick} (enable dev mode or MpSteeringLedger.flag)");
+                MpLog.Log($"Steering ledger off on this game, no file for the map {mapId} / {lane} leaf diff at timer tick {tick} (put MpSteeringLedger.flag in the save data folder to turn it on)");
                 return;
             }
 

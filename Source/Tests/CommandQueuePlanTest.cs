@@ -44,7 +44,7 @@ public class CommandQueuePlanTest
     }
 
     [Test]
-    public void PastCommandsDuplicatesAndUnloadedMapsAreLeftOut()
+    public void PastCommandsAndDuplicatesAreLeftOut()
     {
         var shared = Cmd(20, 0);
         var snapshot = new Dictionary<int, List<ScheduledCommand>>
@@ -52,7 +52,6 @@ public class CommandQueuePlanTest
             // The host's snapshot keeps the world queue, which holds map commands under consistent order
             [ScheduledCommand.Global] = [shared, Cmd(9, -1)],
             [0] = [shared, Cmd(30, 0)],
-            [7] = [Cmd(25, 7)],
         };
 
         var plan = CommandQueuePlan.Build(snapshot, [0], timer: 10, singleQueue: true);
@@ -60,7 +59,28 @@ public class CommandQueuePlanTest
         Assert.That(plan.world.Select(c => c.ticks), Is.EqualTo(new[] { 20, 30 }));
         Assert.That(plan.duplicates, Is.EqualTo(1));
         Assert.That(plan.beforeTimer, Is.EqualTo(1));
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public void CommandsForAMapNotMadeYetGoInTheWorldQueue(bool singleQueue)
+    {
+        // The host made map 7 after the join point and a command for it came while this game loaded: the catch-up
+        // makes map 7 again, and maps no longer take their list when made, so the world queue must hold it
+        var forMap7 = Cmd(25, 7);
+        var snapshot = new Dictionary<int, List<ScheduledCommand>>
+        {
+            [0] = [Cmd(30, 0)],
+            [7] = [Cmd(5, 7), forMap7],
+        };
+
+        var plan = CommandQueuePlan.Build(snapshot, [0], timer: 10, singleQueue);
+
+        Assert.That(plan.world, Does.Contain(forMap7));
+        Assert.That(plan.maps.ContainsKey(7), Is.False);
         Assert.That(plan.unloadedMap, Is.EqualTo(1));
+        Assert.That(plan.beforeTimer, Is.EqualTo(1));
+        Assert.That(CommandQueuePlan.Missing(snapshot, [plan.world, ..plan.maps.Values], timer: 10), Is.Empty);
     }
 
     [Test]
@@ -87,7 +107,7 @@ public class CommandQueuePlanTest
         var past = Cmd(30, 0);
         var snapshot = new Dictionary<int, List<ScheduledCommand>> { [0] = [past, queued, lost] };
 
-        var missing = CommandQueuePlan.Missing(snapshot, [new[] { queued }], [0], timer: 35);
+        var missing = CommandQueuePlan.Missing(snapshot, [new[] { queued }], timer: 35);
 
         Assert.That(missing, Is.EqualTo(new[] { lost }));
     }

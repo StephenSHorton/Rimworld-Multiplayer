@@ -33,6 +33,38 @@ public class ConnectionWatchTest
     }
 
     [Test]
+    public void ARejoiningPlayerIsNotWatchedUntilItsWorldIsReady()
+    {
+        var server = MultiplayerServer.instance = new MultiplayerServer(new ServerSettings
+        {
+            gameName = "Test",
+            direct = false,
+            lan = false
+        });
+        try
+        {
+            var conn = new DummyConnection("Blake");
+            var player = new ServerPlayer(1, conn);
+            conn.serverPlayer = player;
+            conn.ChangeState(ConnectionStateEnum.ServerPlaying);
+            server.playerManager.Players.Add(player);
+            player.UpdateStatus(PlayerStatus.Playing);
+            Assert.That(server.PlayingIngamePlayers, Does.Contain(player));
+
+            // /resync or the debug reset: the game changes scenes and answers no keepalives while it loads
+            ((ServerPlayingState)conn.StateObj!).HandleRejoin(new ByteReader([]));
+            Assert.That(server.PlayingIngamePlayers, Does.Not.Contain(player));
+
+            ((ServerPlayingState)conn.StateObj!).HandleWorldReady(new ByteReader([]));
+            Assert.That(server.PlayingIngamePlayers, Does.Contain(player));
+        }
+        finally
+        {
+            MultiplayerServer.instance = null;
+        }
+    }
+
+    [Test]
     public void LongSilenceDropsAndLeaversAreForgotten()
     {
         var watch = new ConnectionWatch();

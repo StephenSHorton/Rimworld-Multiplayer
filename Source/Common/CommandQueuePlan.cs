@@ -22,7 +22,8 @@ public static class CommandQueuePlan
         public int beforeTimer;
         // At the loaded timer exactly: queued, since a join point's save is made before the rest of its tick's commands
         public int atTimer;
-        // For a map this game didn't load
+        // For a map this game didn't load, one the host made after the save (a caravan's or a quest's map) that the
+        // catch-up makes again: queued in the world queue, which runs a command on the map it names by its tick
         public int unloadedMap;
         public int duplicates;
 
@@ -31,7 +32,7 @@ public static class CommandQueuePlan
             var parts = new List<string> { $"world {world.Count}" };
             parts.AddRange(maps.OrderBy(kv => kv.Key).Select(kv => $"map {kv.Key}: {kv.Value.Count}"));
             return $"{queued} of {total} queued ({string.Join(", ", parts)}); {atTimer} at the loaded tick, " +
-                   $"{beforeTimer} before it left out, {unloadedMap} for maps not loaded, {duplicates} duplicates";
+                   $"{beforeTimer} before it left out, {unloadedMap} for maps not made yet (in the world queue), {duplicates} duplicates";
         }
     }
 
@@ -75,15 +76,14 @@ public static class CommandQueuePlan
                 }
 
                 bool global = cmd.mapId == ScheduledCommand.Global;
-                if (!global && !maps.ContainsKey(cmd.mapId))
-                {
-                    result.unloadedMap++;
-                    continue;
-                }
+                // Maps no longer take their list when they are made, so a map the catch-up makes gets its commands
+                // from the world queue (MultiplayerSession.ScheduleCommand does the same in play)
+                bool notMade = !global && !maps.ContainsKey(cmd.mapId);
+                if (notMade) result.unloadedMap++;
 
                 if (cmd.ticks == timer) result.atTimer++;
                 result.queued++;
-                if (global || singleQueue) world.Add(cmd);
+                if (global || singleQueue || notMade) world.Add(cmd);
                 else maps[cmd.mapId].Add(cmd);
             }
         }
@@ -97,15 +97,16 @@ public static class CommandQueuePlan
     }
 
     /// <summary>
-    /// The snapshot's commands for a tick still ahead (after <paramref name="timer"/>) that no queue holds, for a
-    /// loaded map or the world. Each is a command this game will never run.
+    /// The snapshot's commands for a tick still ahead (after <paramref name="timer"/>) that no queue holds, for any
+    /// map (one not made yet has its commands in the world queue) or the world. Each is a command this game will
+    /// never run.
     /// </summary>
     public static List<ScheduledCommand> Missing(IReadOnlyDictionary<int, List<ScheduledCommand>> snapshot,
-        IEnumerable<IEnumerable<ScheduledCommand>> queues, ICollection<int> loadedMaps, int timer)
+        IEnumerable<IEnumerable<ScheduledCommand>> queues, int timer)
     {
         var queued = new HashSet<ScheduledCommand>(queues.SelectMany(q => q), ReferenceEqualityComparer.Instance);
         return snapshot.Values.SelectMany(l => l)
-            .Where(c => c.ticks > timer && (c.mapId == ScheduledCommand.Global || loadedMaps.Contains(c.mapId)) && !queued.Contains(c))
+            .Where(c => c.ticks > timer && !queued.Contains(c))
             .Distinct<ScheduledCommand>(ReferenceEqualityComparer.Instance)
             .ToList();
     }

@@ -22,7 +22,7 @@ namespace Multiplayer.Client.Desyncs
                 on.Add("Slow desync tracing (Multiplayer settings, Desync tracing mode)");
             SteeringLedger.Refresh();
             if (SteeringLedger.Enabled)
-                on.Add(SteeringLedger.FlagFile ? "the steering ledger (MpSteeringLedger.flag in the save data folder)" : "the steering ledger (dev mode)");
+                on.Add("the steering ledger (MpSteeringLedger.flag in the save data folder; delete the file to turn it off)");
             return on;
         }
 

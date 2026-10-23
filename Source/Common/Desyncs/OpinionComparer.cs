@@ -32,6 +32,9 @@ public class OpinionVerdict
 /// </summary>
 public static class OpinionComparer
 {
+    /// <summary>Starts the message of a command random state difference (the host finds it in a verdict's text).</summary>
+    public const string CommandsDiffText = "Random state from commands doesn't match";
+
     public static OpinionVerdict Compare(SyncOpinion reference, SyncOpinion other)
     {
         var verdict = new OpinionVerdict();
@@ -65,7 +68,7 @@ public static class OpinionComparer
 
         var cmdDiff = DescribeRandomDiff(reference.commandRandomStates, other.commandRandomStates, out var cmdIndex);
         if (cmdDiff != null)
-            AddRngDiff(verdict, RandAttrScope.Commands, cmdIndex, $"Random state from commands doesn't match: {cmdDiff}");
+            AddRngDiff(verdict, RandAttrScope.Commands, cmdIndex, $"{CommandsDiffText}: {cmdDiff}");
 
         int softBefore = verdict.soft.Count;
         CompareLanes(reference.lanes ?? [], other.lanes ?? [], verdict);
