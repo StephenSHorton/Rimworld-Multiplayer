@@ -146,6 +146,7 @@ namespace Multiplayer.Client
             }
 
             ScribeLike.provider = new ScribeProvider();
+            StallWatchdog.Start();
             settings = MultiplayerLoader.Multiplayer.instance!.GetSettings<MpSettings>();
 
             EarlyInit.ProcessEnvironment();

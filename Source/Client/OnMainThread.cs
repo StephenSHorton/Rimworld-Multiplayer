@@ -18,6 +18,8 @@ namespace Multiplayer.Client
 
         public void Update()
         {
+            StallWatchdog.OnFrame();
+
             // Changing scene
             if (LongEventHandler.currentEvent is { levelToLoad: not null })
                 return;

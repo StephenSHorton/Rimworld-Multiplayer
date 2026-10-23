@@ -47,10 +47,18 @@ namespace Multiplayer.Common
                 return new NetManager(new MpServerNetListener(server, false))
                 {
                     EnableStatistics = true,
-                    IPv6Enabled = ipv6
+                    IPv6Enabled = ipv6,
+                    DisconnectTimeout = DisconnectTimeoutMs
                 };
             }
         }
+
+        /// <summary>
+        /// LiteNet's default is 5 s. 2026-10-23: a host's whole process stalled 8.7 s right after sending a rejoin's
+        /// world and both peers timed out, though nothing was wrong with the link; ConnectionWatch still pauses the
+        /// game after 5 s without packets, so a quiet player is noticed as fast as before. Every peer uses the same.
+        /// </summary>
+        public const int DisconnectTimeoutMs = 15000;
 
         public void Tick()
         {
@@ -86,7 +94,7 @@ namespace Multiplayer.Common
 
         public static LiteNetArbiterManager? Create(MultiplayerServer server)
         {
-            var arbiter = new NetManager(new MpServerNetListener(server, true)) { IPv6Enabled = false };
+            var arbiter = new NetManager(new MpServerNetListener(server, true)) { IPv6Enabled = false, DisconnectTimeout = LiteNetManager.DisconnectTimeoutMs };
             if (!arbiter.Start(IPAddress.Loopback, IPAddress.IPv6Any, 0)) return null;
             return new LiteNetArbiterManager(arbiter);
         }
@@ -116,7 +124,8 @@ namespace Multiplayer.Common
             var lanManager = new NetManager(new MpServerNetListener(server, false))
             {
                 EnableStatistics = true,
-                IPv6Enabled = false
+                IPv6Enabled = false,
+                DisconnectTimeout = LiteNetManager.DisconnectTimeoutMs
             };
             if (!lanManager.Start(addr, IPAddress.IPv6Any, 0)) return null;
             return new LiteNetLanManager(lanManager, addr);
