@@ -91,8 +91,18 @@ namespace Multiplayer.Client
 
         private static bool SyncPendingAndPruneFinished(BufferTarget target, BufferData data)
         {
-            if (data.IsAlreadySynced(target))
+            // Reading the field can throw once its target is gone (a transferable whose thing left the dialog).
+            // Drop the change with one line instead of throwing out of UpdateSync on every frame.
+            try
+            {
+                if (data.IsAlreadySynced(target))
+                    return true;
+            }
+            catch (Exception e)
+            {
+                Log.Warning($"Multiplayer: dropping a buffered change of {data.field}, its target can't be read: {e.GetType().Name}: {e.Message}");
                 return true;
+            }
 
             var millisNow = Utils.MillisNow;
             if (!data.sent && millisNow - data.lastChangedAtMillis > 200)

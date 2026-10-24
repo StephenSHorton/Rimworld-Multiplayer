@@ -72,6 +72,7 @@ static class ClassName_MethodName_Patch
 - `SyncHandler` base class for syncing fields, methods, and actions
 - `SyncSerialization` / `SyncWorkerDictionary` for serializing game state
 - `ReadingSyncWorker` / `WritingSyncWorker` for binary protocol
+- **Transfer dialog counts** (`MpTransferableReference`, `SyncFields.SyncTradeableCount`, buffered): a transferable with no thing is written as the `-1` null marker (a destroyed thing still syncs by its id, since sessions never drop destroyed things from their transferables), and a thing id no session finds reads as null, so every game skips the change (2026-10-23: a NullReferenceException in the writer from a pod-loading dialog). A buffered change whose target can no longer be read is dropped with one warning (`SyncFieldUtil.SyncPendingAndPruneFinished`).
 
 ### Networking (LiteNetLib)
 - `ConnectionBase` → `LiteNetConnection` abstraction
