@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using Multiplayer.Common.Desyncs;
 
 namespace Multiplayer.Client.Desyncs
 {
@@ -22,6 +23,7 @@ namespace Multiplayer.Client.Desyncs
         public class Entry
         {
             public int index;
+            public int hash;
             public string kind;
             public string header;
             public readonly List<string> frames = new();
@@ -41,7 +43,7 @@ namespace Multiplayer.Client.Desyncs
                 if (m.Success)
                 {
                     int index = int.Parse(m.Groups[1].Value);
-                    cur = seen.Add(index) ? new Entry { index = index, kind = m.Groups[4].Success ? m.Groups[4].Value : null, header = line } : null;
+                    cur = seen.Add(index) ? new Entry { index = index, hash = int.Parse(m.Groups[3].Value), kind = m.Groups[4].Success ? m.Groups[4].Value : null, header = line } : null;
                     if (cur != null) result.Add(cur);
                     continue;
                 }
@@ -54,6 +56,29 @@ namespace Multiplayer.Client.Desyncs
                 if (cur != null && line.Length > 0 && cur.frames.Count < ShownFrames) cur.frames.Add(line);
             }
             return result.OrderBy(e => e.index).ToList();
+        }
+
+        /// <summary>
+        /// The first trace from <paramref name="blockStart"/> on, within one <see cref="TraceBlocks.Size"/>
+        /// block, whose hash differs from the other game's (or that only one game has), from the other game's formatted
+        /// traces; -1 when they hold none of the block. Off Mono the host sends its trace hashes in blocks, so the
+        /// opinions only say which block differs; the host's traces of that block then say which trace.
+        /// </summary>
+        public static int ExactDifference(ClientSyncOpinion local, int blockStart, string otherTraces)
+        {
+            if (blockStart < 0) return -1;
+            var other = Parse(otherTraces).ToDictionary(e => e.index);
+            if (!other.ContainsKey(blockStart)) return -1;
+            var hashes = local.desyncStackTraceHashes;
+            int end = blockStart + TraceBlocks.Size;
+            for (int i = blockStart; i < end; i++)
+            {
+                bool here = i < hashes.Count;
+                bool there = other.TryGetValue(i, out var entry);
+                if (!here && !there) return -1;
+                if (here != there || hashes[i] != entry.hash) return i;
+            }
+            return -1;
         }
 
         /// <summary>

@@ -238,6 +238,10 @@ namespace Multiplayer.Client
 
         private static int FindTraceHashesDiffTick(ClientSyncOpinion local, ClientSyncOpinion remote, out bool found)
         {
+            // The host's traces come in blocks: the first trace of the block they part in
+            if (!Native.IsMono)
+                return TraceBlocks.FirstDifference(local.desyncStackTraceHashes, remote.desyncStackTraceHashes, out found);
+
             found = true;
             //Find the length of whichever stack trace is shorter.
             var localCount = local.desyncStackTraceHashes.Count;

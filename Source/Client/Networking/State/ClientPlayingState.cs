@@ -5,6 +5,7 @@ using Ionic.Zlib;
 using Multiplayer.Client.Desyncs;
 using Multiplayer.Client.Saving;
 using Multiplayer.Common;
+using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Networking.Packet;
 using RimWorld;
 using UnityEngine;
@@ -213,14 +214,17 @@ namespace Multiplayer.Client
             if (packet.mode == ServerTracesPacket.Mode.Request)
             {
                 var info = Multiplayer.game.sync.knownClientOpinions.FirstOrDefault(b => b.startTick == packet.tick);
-                var response = info?.GetFormattedStackTracesForRange(packet.diffAt) ?? "Traces not available";
+                // Off Mono the client found the block its traces part in (TraceBlocks), not the trace: send the block
+                var span = Native.IsMono ? 0 : TraceBlocks.Size;
+                var response = info?.GetFormattedStackTracesForRange(packet.diffAt, span) ?? "Traces not available";
 
-                connection.Send(new ClientTracesPacket
+                // Fragmented: a block of Slow mode traces with their stacks can pass a single packet's 64 KB
+                connection.SendFragmented(new ClientTracesPacket
                     {
                         playerId = packet.playerId,
                         rawTraces = GZipStream.CompressString(response),
                         rawJittedMethods = GZipStream.CompressString(JittedMethods.GetJittedMethodsString())
-                    });
+                    }.Serialize());
             }
             else if (packet.mode == ServerTracesPacket.Mode.Transfer)
             {

@@ -2,6 +2,7 @@ using System;
 using HarmonyLib;
 using Multiplayer.Client.Desyncs;
 using Multiplayer.Common;
+using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Networking.Packet;
 using RimWorld;
 using Verse;
@@ -132,6 +133,9 @@ namespace Multiplayer.Client
                     // Only the clients compare trace hashes, against the reference game's
                     if (TickPatch.Simulating || Multiplayer.LocalServer == null && !Multiplayer.arbiterInstance)
                         net.traceHashes = [];
+                    // Off Mono a trace difference is soft: one hash per block of traces, not one per Rand call
+                    else if (!Native.IsMono)
+                        net.traceHashes = TraceBlocks.Of(net.traceHashes);
                     Multiplayer.Client.SendFragmented(new ClientSyncInfoPacket { SyncOpinion = net }.Serialize());
                 }
                 catch (Exception e)

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using HarmonyLib;
 using JetBrains.Annotations;
 using Multiplayer.Common;
+using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Util;
 using RimWorld;
 using UnityEngine;
@@ -115,9 +116,30 @@ public class SaveableDesyncInfo(
     private string GetLocalTraces([CanBeNull] HostInfo hostInfo)
     {
         var traceMessage = "";
-        var localCount = local.desyncStackTraceHashes.Count;
-        var remoteCount = remote.desyncStackTraceHashes.Count;
+        // The host's come in blocks off Mono (TraceBlocks): diffAt is then the first trace of the block they part in
+        var localCount = TraceBlocks.Count(local.desyncStackTraceHashes);
+        var remoteCount = TraceBlocks.Count(remote.desyncStackTraceHashes);
         int count = Math.Min(localCount, remoteCount);
+        int span = 0;
+        int exactAt = diffAt;
+        if (TraceBlocks.IsBlocks(remote.desyncStackTraceHashes) && diffAtFound)
+        {
+            // The host's traces of the block (it sends the whole block) say which trace
+            span = TraceBlocks.Size;
+            var exact = TraceDiffNote.ExactDifference(local, diffAt, hostInfo?.Traces);
+            if (exact >= 0)
+            {
+                exactAt = exact;
+                traceMessage = $"Note: the host sent its trace hashes in blocks of {TraceBlocks.Size}; the block from {diffAt} differs, " +
+                               $"and the host's traces of it say the first differing trace is {exact}\n\n";
+            }
+            else
+            {
+                exactAt = -1;
+                traceMessage = $"Note: the host sent its trace hashes in blocks of {TraceBlocks.Size}; the traces part somewhere in " +
+                               $"{diffAt}..{diffAt + TraceBlocks.Size - 1} (the host's traces of it didn't say where)\n\n";
+            }
+        }
 
         if (diffAt == -1)
         {
@@ -137,14 +159,15 @@ public class SaveableDesyncInfo(
         string note;
         try
         {
-            note = diffAtFound ? TraceDiffNote.For(local, diffAt, hostInfo?.Traces, "the host") : "";
+            // Only for an exact trace: the first trace of a block names no difference of its own
+            note = diffAtFound && exactAt >= 0 ? TraceDiffNote.For(local, exactAt, hostInfo?.Traces, "the host") : "";
         }
         catch (Exception e)
         {
             note = $"Couldn't compare the first differing trace's kind: {e.Message}\n\n";
         }
 
-        traceMessage += note + local.GetFormattedStackTracesForRange(diffAt);
+        traceMessage += note + local.GetFormattedStackTracesForRange(diffAt, span);
         return traceMessage;
     }
 
