@@ -54,13 +54,19 @@ namespace Multiplayer.Client.Desyncs
         /// <summary>Set at every lane checkpoint; the patches read nothing else when it's off.</summary>
         public static bool Enabled { get; private set; }
 
+        // Stacks only with the flag file: an automatic window is on during combat, when rotation changes and path
+        // requests come fastest, and a managed stack for each cost Blake 15 ms a tick on 2026-10-22. The window still
+        // records each change's tick, values and face inputs, which name the pawn and the field that split.
+        private static bool withStacks;
+
         public static bool FlagFile => File.Exists(Path.Combine(GenFilePaths.SaveDataFolderPath, "MpSteeringLedger.flag"));
 
         // Read again at every checkpoint (once a second of play): removing the file turns it off without a restart.
         // It was read once per process, and with a stack per rotation change it can cost several ms a tick.
         public static void Refresh()
         {
-            Enabled = Multiplayer.Client != null && (FlagFile || window.On);
+            withStacks = Multiplayer.Client != null && FlagFile;
+            Enabled = withStacks || Multiplayer.Client != null && window.On;
         }
 
         // The window a soft pawns or things difference turned it on for (the referee's verdict carries it), in timer
@@ -138,7 +144,7 @@ namespace Multiplayer.Client.Desyncs
         private static void Record(char kind, Pawn pawn, int a, int b, IntVec3 from, LocalTargetInfo dest)
         {
             entries[next] = new Entry(kind, Find.TickManager?.TicksGame ?? -1, TickPatch.Timer, pawn.def, pawn.thingIDNumber, a, b, from,
-                dest.HasThing ? dest.Thing : null, dest.HasThing ? IntVec3.Invalid : dest.Cell, new StackTrace(2, false),
+                dest.HasThing ? dest.Thing : null, dest.HasThing ? IntVec3.Invalid : dest.Cell, withStacks ? new StackTrace(2, false) : null,
                 kind == 'R' ? FaceInputs(pawn) : null);
             next = (next + 1) % Kept;
             if (count < Kept) count++;
@@ -190,7 +196,7 @@ namespace Multiplayer.Client.Desyncs
                     var id = e.PawnId;
                     if (!ids.Contains(id)) continue;
                     written++;
-                    sb.AppendLine($"{e.kind} tick={e.tick} timer={e.timer} {id} {Describe(e)} {IdLedger.Describe(e.stack, Frames)}");
+                    sb.AppendLine($"{e.kind} tick={e.tick} timer={e.timer} {id} {Describe(e)} {(e.stack != null ? IdLedger.Describe(e.stack, Frames) : "(no stack: automatic window)")}");
                 }
                 if (written == 0)
                     sb.AppendLine("(none recorded for these pawns)");
