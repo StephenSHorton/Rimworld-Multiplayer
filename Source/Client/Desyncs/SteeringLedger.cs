@@ -6,6 +6,7 @@ using System.Text;
 using HarmonyLib;
 using Multiplayer.Client.Util;
 using Multiplayer.Common;
+using Multiplayer.Common.Desyncs;
 using UnityEngine;
 using RimWorld;
 using Verse;
@@ -59,53 +60,56 @@ namespace Multiplayer.Client.Desyncs
         // It was read once per process, and with a stack per rotation change it can cost several ms a tick.
         public static void Refresh()
         {
-            Enabled = Multiplayer.Client != null && (FlagFile || autoOn);
+            Enabled = Multiplayer.Client != null && (FlagFile || window.On);
         }
 
         // The window a soft pawns or things difference turned it on for (the referee's verdict carries it), in timer
         // ticks; it switches at the same timer tick on every game the verdict reached in time
-        private static int autoFrom = -1, autoUntil = -1;
-        private static bool autoOn;
+        private static readonly LedgerWindow window = new();
+
+        /// <summary>The timer tick the window ends at, or -1 when none is armed or on.</summary>
+        public static int AutoUntil => window.Until;
+
+        /// <summary>
+        /// A load (join, join point, resync) or the end of the session: the window counts in the old timer. It was
+        /// kept, so a window open when a session ended stayed on in the next one, whose timer starts near 0.
+        /// </summary>
+        public static void ResetWindow()
+        {
+            int from = window.From, until = window.Until;
+            if (window.Reset())
+                MpLog.Log($"Steering ledger: window from timer tick {from} to {until} dropped by a load or the end of the session");
+            Refresh();
+        }
 
         /// <summary>A verdict's window: armed only while this game is still before its start.</summary>
         public static void Arm(int from, int until, int timer)
         {
-            if (until <= from) return;
-            if (timer >= from)
+            switch (window.Arm(from, until, timer))
             {
-                MpLog.Warn($"Steering ledger: the window from timer tick {from} to {until} arrived at {timer}, too late to start in step with the other game; left off");
-                return;
+                case LedgerWindow.ArmResult.TooLate:
+                    MpLog.Warn($"Steering ledger: the window from timer tick {from} to {until} arrived at {timer}, too late to start in step with the other game; left off");
+                    break;
+                case LedgerWindow.ArmResult.Extended:
+                    MpLog.Log($"Steering ledger: window now ends at timer tick {window.Until}");
+                    break;
+                case LedgerWindow.ArmResult.Armed:
+                    MpLog.Log($"Steering ledger: on from timer tick {from} to {until} for a soft pawns or things difference");
+                    break;
             }
-            if (autoFrom >= 0)
-            {
-                // Already armed or on: the window grows to the later end, from the start already set
-                autoUntil = System.Math.Max(autoUntil, until);
-                MpLog.Log($"Steering ledger: window now ends at timer tick {autoUntil}");
-                return;
-            }
-
-            autoFrom = from;
-            autoUntil = until;
-            MpLog.Log($"Steering ledger: on from timer tick {from} to {until} for a soft pawns or things difference");
         }
 
         /// <summary>Called every timer tick, at the same point of the tick on every game.</summary>
         public static void Tick(int timer)
         {
-            if (autoFrom < 0) return;
-            if (!autoOn && timer >= autoFrom && timer < autoUntil)
-            {
-                autoOn = true;
-                Refresh();
-                MpLog.Log($"Steering ledger: on at timer tick {timer} until {autoUntil}");
-            }
-            else if (timer >= autoUntil)
-            {
-                autoOn = false;
-                autoFrom = autoUntil = -1;
-                Refresh();
+            if (!window.Armed) return;
+            var until = window.Until;
+            if (!window.Tick(timer)) return;
+            Refresh();
+            if (window.On)
+                MpLog.Log($"Steering ledger: on at timer tick {timer} until {until}");
+            else
                 MpLog.Log($"Steering ledger: window ended at timer tick {timer}{(Enabled ? " (still on: MpSteeringLedger.flag)" : "")}");
-            }
         }
 
         // What Pawn_RotationTracker.Face was given while it sets a rotation: the point, the pawn's own DrawPos and
