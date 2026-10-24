@@ -14,6 +14,9 @@ namespace Multiplayer.Client.Util;
 /// only the main thread did. Each line carries what the GC did in the gap and the memory load (<see cref="GcMark"/>).
 /// Every 60 s of an MP session the main thread also logs a memory line, so heap growth shows before a gen2 freezes
 /// the game: that host's freezes came at a 9 GB heap with desync traces on.
+/// Waylith runs no frames while the window is unfocused unless runInBackground is on (an MP session turns it on), so
+/// a frame gap the watchdog thread saw the engine idle through is labelled as such, not as a block (2026-10-23: three
+/// "blocked" lines of 5-170 s at the menu were alt-tabs).
 /// </summary>
 public static class StallWatchdog
 {
@@ -30,6 +33,8 @@ public static class StallWatchdog
     private static GcMark frameMark;
     private static long lastMemoryMs;
     private static GcMark memoryMark;
+    // When the watchdog thread last saw the engine idle unfocused (clock ms)
+    private static long idleSeenMs = -1;
 
     public static void Start()
     {
@@ -47,9 +52,11 @@ public static class StallWatchdog
         frames++;
         if (lastFrameMs >= 0 && now - lastFrameMs > FrameGapMs)
         {
-            var mark = GcMark.Now();
-            MpLog.Warn($"Main thread blocked {now - lastFrameMs} ms (the stall watchdog kept running unless it logs a gap too): " +
-                       $"{mark.Since(frameMark)}");
+            if (Interlocked.Read(ref idleSeenMs) > lastFrameMs)
+                MpLog.Log($"No frames for {now - lastFrameMs} ms while the window was unfocused (runInBackground off)");
+            else
+                MpLog.Warn($"Main thread blocked {now - lastFrameMs} ms (the stall watchdog kept running unless it logs a gap too): " +
+                           $"{GcMark.Now().Since(frameMark)}");
         }
         frameMark = GcMark.Now();
         lastFrameMs = now;
@@ -79,6 +86,9 @@ public static class StallWatchdog
         {
             Thread.Sleep(SleepMs);
             long now = clock.ElapsedMilliseconds;
+            // Both read plain static bools in the engine
+            if (!UnityEngine.Application.isFocused && !UnityEngine.Application.runInBackground)
+                Interlocked.Exchange(ref idleSeenMs, now);
             var next = GcMark.Now();
             long gap = now - last - SleepMs;
             if (gap > ProcessGapMs)
