@@ -23,6 +23,14 @@ public record struct ServerSyncVerdictPacket : IPacket
     /// <summary>What else the comparison found besides the hard difference: other random states, lanes, errors.</summary>
     public string[] extra;
 
+    /// <summary>
+    /// When <see cref="ledgerUntil"/> is past <see cref="ledgerFrom"/>: the steering ledger records on both games it
+    /// goes to from timer tick <see cref="ledgerFrom"/> until <see cref="ledgerUntil"/> (a soft pawns or things
+    /// difference). A game that is already past the start leaves it off, so the two never record different spans.
+    /// </summary>
+    public int ledgerFrom;
+    public int ledgerUntil;
+
     public const int MaxSaveSections = 400;
     public const int MaxExtra = 32;
 
@@ -39,5 +47,7 @@ public record struct ServerSyncVerdictPacket : IPacket
         buf.Bind(ref saveSections, BinderOf.String(), maxLength: MaxSaveSections);
         extra ??= [];
         buf.Bind(ref extra, BinderOf.String(), maxLength: MaxExtra);
+        buf.Bind(ref ledgerFrom);
+        buf.Bind(ref ledgerUntil);
     }
 }

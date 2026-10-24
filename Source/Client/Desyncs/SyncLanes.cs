@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Multiplayer.Client.Util;
+using Multiplayer.Common;
 using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Networking.Packet;
 using RimWorld;
 using RimWorld.Planet;
 using Verse;
+using Verse.AI;
 
 namespace Multiplayer.Client
 {
@@ -114,6 +116,10 @@ namespace Multiplayer.Client
                     into.Add(new LaneHash { tick = tick, mapId = map.uniqueID, lane = lane.name, hash = Safe(lane.name, () => lane.hash(map)), hard = lane.hard,
                         detail = lane.detail != null ? SafeDetail(() => lane.detail(map)) : "" });
                 }
+
+                // Not for the self-check or the report: those run at a tick the ring may already hold, around a reload
+                if (!computeAll)
+                    Safe("kept leaves", () => { KeepLeaves(map, tick); return 0; });
             }
 
             for (int i = 0; i < worldLanes.Count; i++)
@@ -418,22 +424,6 @@ namespace Multiplayer.Client
 
         private static string Fmt(IntVec3 c) => c.IsValid ? $"({c.x},{c.z})" : "none";
 
-        private static string SteeringLeaf(Pawn p)
-        {
-            var stance = p.stances?.curStance;
-            var busy = stance as Stance_Busy;
-            var pather = p.pather;
-            var duty = p.mindState?.duty;
-            var job = p.jobs?.curJob;
-            return $"rot={p.rotationInt.AsInt} stance={stance?.GetType().Name ?? "none"} " +
-                   $"stanceFocus={(busy == null ? "none" : Fmt(busy.focusTarg))} stanceTicks={busy?.ticksLeft ?? -1} stanceVerb={busy?.verb?.loadID ?? "none"} " +
-                   $"moving={pather?.Moving == true} next={(pather == null ? "none" : Fmt(pather.nextCell))} " +
-                   $"dest={(pather == null ? "none" : Fmt(pather.Destination))} path={pather?.curPath != null} " +
-                   $"duty={duty?.def?.defName ?? "none"} dutyFocus={(duty == null ? "none" : Fmt(duty.focus))} " +
-                   $"enemy={p.mindState?.enemyTarget?.ThingID ?? "none"} " +
-                   $"tA={(job == null ? "none" : Fmt(job.targetA))} tB={(job == null ? "none" : Fmt(job.targetB))}";
-        }
-
         private static ulong PawnsLane(Map map)
         {
             ulong sum = 0;
@@ -569,7 +559,7 @@ namespace Multiplayer.Client
                 case "things":
                     foreach (var t in map.listerThings.AllThings)
                         if (t is not Mote)
-                            lines.Add((t.thingIDNumber, $"{t.ThingID} def={t.def?.defName} stuff={t.Stuff?.defName} pos={t.positionInt} rot={LaneRotation(t)} stack={t.stackCount} hp={LaneHitPoints(t)}"));
+                            lines.Add((t.thingIDNumber, ThingLeaf.Of(t).Line()));
                     break;
                 case "plants":
                     foreach (var t in map.listerThings.ThingsInGroup(ThingRequestGroup.Plant))
@@ -578,18 +568,7 @@ namespace Multiplayer.Client
                     break;
                 case "pawns":
                     foreach (var p in map.mapPawns.AllPawnsSpawned)
-                    {
-                        var hediffs = p.health?.hediffSet?.hediffs == null ? "" :
-                            string.Join(",", p.health.hediffSet.hediffs.Select(h => $"{h.def?.defName}#{h.loadID}@{h.Part?.Index ?? -1}={Bits(h.severityInt)}").OrderBy(x => x, StringComparer.Ordinal));
-                        var needs = p.needs?.AllNeeds == null ? "" :
-                            string.Join(",", p.needs.AllNeeds.Select(n => $"{n.def?.defName}={Bits(n.curLevelInt)}").OrderBy(x => x, StringComparer.Ordinal));
-                        lines.Add((p.thingIDNumber,
-                            $"{p.ThingID} pos={p.positionInt} faction={p.Faction?.loadID ?? -1} job={p.jobs?.curJob?.def?.defName}#{p.jobs?.curJob?.loadID ?? -1} " +
-                            $"mental={p.mindState?.mentalStateHandler?.CurStateDef?.defName} drafted={p.drafter?.Drafted == true} " +
-                            $"carry={p.carryTracker?.CarriedThing?.ThingID} inv={p.inventory?.innerContainer?.Count ?? -1} eq={p.equipment?.Primary?.ThingID} " +
-                            SteeringLeaf(p) + " " +
-                            $"hediffs=[{hediffs}] needs=[{needs}]"));
-                    }
+                        lines.Add((p.thingIDNumber, PawnLeaf(p)));
                     break;
                 case "terrain":
                 {
@@ -663,6 +642,165 @@ namespace Multiplayer.Client
 
             lines.Sort((a, b) => a.id.CompareTo(b.id));
             return lines.Select(l => l.line).ToList();
+        }
+
+        private static string PawnLeaf(Pawn p)
+        {
+            var one = new KeptLeaves();
+            one.AddPawn(p);
+            return one.PawnLine(0);
+        }
+
+        // A thing's leaf values as they were: its id and def never change, so the thing itself names it later
+        private readonly struct ThingLeaf(Thing thing, ThingDef stuff, IntVec3 pos, int rot, int stack, int hp)
+        {
+            public readonly Thing thing = thing;
+
+            public static ThingLeaf Of(Thing t) => new(t, t.Stuff, t.positionInt, LaneRotation(t), t.stackCount, LaneHitPoints(t));
+
+            public string Line() => $"{thing.ThingID} def={thing.def?.defName} stuff={stuff?.defName} pos={pos} rot={rot} stack={stack} hp={hp}";
+        }
+
+        // A pawn's leaf values as they were. Ids and defs never change, so the things and defs kept name them later;
+        // its hediffs and needs are a run of the checkpoint's shared lists.
+        private struct PawnValues
+        {
+            public Pawn pawn;
+            public IntVec3 pos, next;
+            public int faction, jobId, inv, rot, stanceTicks, hediffStart, hediffCount, needStart, needCount;
+            public JobDef job;
+            public MentalStateDef mental;
+            public DutyDef duty;
+            public bool drafted, busy, hasPather, moving, path, hasDuty, hasJob;
+            public Thing carry, eq, enemy;
+            public Type stance;
+            public LocalTargetInfo stanceFocus, dest, dutyFocus, tA, tB;
+            public string stanceVerb;
+        }
+
+        // --- Kept leaves: the pawns and things lanes of the last few checkpoints ---
+
+        // What a map's pawns and things lanes were made of at one checkpoint, kept as values and written out only
+        // when asked: a played map has thousands of things, and a pawn's line (hediffs and needs sorted and written
+        // as bits) would change at most checkpoints anyway, as needs move every 150 ticks and stances and paths in
+        // combat every tick. Evicted ones are reused, so a checkpoint allocates nothing once the lists have grown.
+        private class KeptLeaves
+        {
+            public readonly List<ThingLeaf> things = new();
+            public readonly List<PawnValues> pawns = new();
+            public readonly List<(HediffDef def, int loadId, int part, float severity)> hediffs = new();
+            public readonly List<(NeedDef def, float level)> needs = new();
+
+            public void Clear()
+            {
+                things.Clear();
+                pawns.Clear();
+                hediffs.Clear();
+                needs.Clear();
+            }
+
+            public void AddPawn(Pawn p)
+            {
+                var stance = p.stances?.curStance;
+                var busy = stance as Stance_Busy;
+                var pather = p.pather;
+                var duty = p.mindState?.duty;
+                var job = p.jobs?.curJob;
+                var v = new PawnValues
+                {
+                    pawn = p, pos = p.positionInt, faction = p.Faction?.loadID ?? -1,
+                    job = job?.def, jobId = job?.loadID ?? -1,
+                    mental = p.mindState?.mentalStateHandler?.CurStateDef, drafted = p.drafter?.Drafted == true,
+                    carry = p.carryTracker?.CarriedThing, inv = p.inventory?.innerContainer?.Count ?? -1, eq = p.equipment?.Primary,
+                    rot = p.rotationInt.AsInt, stance = stance?.GetType(),
+                    busy = busy != null, stanceFocus = busy?.focusTarg ?? LocalTargetInfo.Invalid, stanceTicks = busy?.ticksLeft ?? -1,
+                    stanceVerb = busy?.verb?.loadID,
+                    hasPather = pather != null, moving = pather?.Moving == true, path = pather?.curPath != null,
+                    next = pather?.nextCell ?? IntVec3.Invalid, dest = pather?.Destination ?? LocalTargetInfo.Invalid,
+                    hasDuty = duty != null, duty = duty?.def, dutyFocus = duty?.focus ?? LocalTargetInfo.Invalid,
+                    enemy = p.mindState?.enemyTarget,
+                    hasJob = job != null, tA = job?.targetA ?? LocalTargetInfo.Invalid, tB = job?.targetB ?? LocalTargetInfo.Invalid,
+                    hediffStart = hediffs.Count, needStart = needs.Count
+                };
+
+                var list = p.health?.hediffSet?.hediffs;
+                if (list != null)
+                    foreach (var h in list)
+                        hediffs.Add((h.def, h.loadID, h.Part?.Index ?? -1, h.severityInt));
+                var allNeeds = p.needs?.AllNeeds;
+                if (allNeeds != null)
+                    foreach (var n in allNeeds)
+                        needs.Add((n.def, n.curLevelInt));
+                v.hediffCount = hediffs.Count - v.hediffStart;
+                v.needCount = needs.Count - v.needStart;
+                pawns.Add(v);
+            }
+
+            // The pawn's line as SyncLanes.Leaves writes it, from the values kept
+            public string PawnLine(int i)
+            {
+                var v = pawns[i];
+                var hd = string.Join(",", hediffs.Skip(v.hediffStart).Take(v.hediffCount)
+                    .Select(h => $"{h.def?.defName}#{h.loadId}@{h.part}={Bits(h.severity)}").OrderBy(x => x, StringComparer.Ordinal));
+                var nd = string.Join(",", needs.Skip(v.needStart).Take(v.needCount)
+                    .Select(n => $"{n.def?.defName}={Bits(n.level)}").OrderBy(x => x, StringComparer.Ordinal));
+                return $"{v.pawn.ThingID} pos={v.pos} faction={v.faction} job={v.job?.defName}#{v.jobId} " +
+                       $"mental={v.mental?.defName} drafted={v.drafted} " +
+                       $"carry={v.carry?.ThingID} inv={v.inv} eq={v.eq?.ThingID} " +
+                       $"rot={v.rot} stance={v.stance?.Name ?? "none"} " +
+                       $"stanceFocus={(v.busy ? Fmt(v.stanceFocus) : "none")} stanceTicks={v.stanceTicks} stanceVerb={v.stanceVerb ?? "none"} " +
+                       $"moving={v.moving} next={(v.hasPather ? Fmt(v.next) : "none")} " +
+                       $"dest={(v.hasPather ? Fmt(v.dest) : "none")} path={v.path} " +
+                       $"duty={v.duty?.defName ?? "none"} dutyFocus={(v.hasDuty ? Fmt(v.dutyFocus) : "none")} " +
+                       $"enemy={v.enemy?.ThingID ?? "none"} " +
+                       $"tA={(v.hasJob ? Fmt(v.tA) : "none")} tB={(v.hasJob ? Fmt(v.tB) : "none")} " +
+                       $"hediffs=[{hd}] needs=[{nd}]";
+            }
+        }
+
+        private static readonly LeafRing<KeptLeaves> kept = new(SyncReferee.KeptCheckpoints);
+        private static readonly Stack<KeptLeaves> spareLeaves = new();
+
+        private static void KeepLeaves(Map map, int tick)
+        {
+            var leaves = spareLeaves.Count > 0 ? spareLeaves.Pop() : new KeptLeaves();
+            leaves.Clear();
+
+            var things = map.listerThings.AllThings;
+            for (int i = 0; i < things.Count; i++)
+                if (things[i] is not Mote)
+                    leaves.things.Add(ThingLeaf.Of(things[i]));
+
+            var pawns = map.mapPawns.AllPawnsSpawned;
+            for (int i = 0; i < pawns.Count; i++)
+                leaves.AddPawn(pawns[i]);
+
+            var evicted = kept.Add(map.uniqueID, tick, leaves);
+            if (evicted != null && spareLeaves.Count < 4)
+                spareLeaves.Push(evicted);
+        }
+
+        /// <summary>
+        /// A map's pawns or things leaves as they were at a lane checkpoint this game still keeps, sorted by id as
+        /// <see cref="Leaves"/> sorts them; false for another lane or a checkpoint no longer kept.
+        /// </summary>
+        public static bool TryKeptLeaves(int mapId, string lane, int tick, out List<string> lines)
+        {
+            lines = null;
+            if (!SyncReferee.KeptLane(lane) || !kept.TryGet(mapId, tick, out var leaves)) return false;
+
+            var sorted = lane == "things"
+                ? leaves.things.Select(t => (id: t.thing.thingIDNumber, line: t.Line())).ToList()
+                : leaves.pawns.Select((p, i) => (id: p.pawn.thingIDNumber, line: leaves.PawnLine(i))).ToList();
+            sorted.Sort((a, b) => a.id.CompareTo(b.id));
+            lines = sorted.Select(l => l.line).ToList();
+            return true;
+        }
+
+        /// <summary>A new game (load, resync): the kept checkpoints were another game's.</summary>
+        public static void ForgetKeptLeaves()
+        {
+            kept.Clear();
         }
 
         // The managers the zones and designations lanes cover, with the prefix that names their faction in a leaf line

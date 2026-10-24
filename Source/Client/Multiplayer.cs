@@ -248,6 +248,7 @@ namespace Multiplayer.Client
 
             TickPatch.Reset();
             VTRSync.Reset();
+            Desyncs.SteeringLedger.ResetWindow();
 
             Find.WindowStack?.WindowOfType<ServerBrowser>()?.Cleanup(true);
             SyncFieldUtil.ClearAllBufferedChanges();

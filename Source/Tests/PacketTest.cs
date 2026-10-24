@@ -157,7 +157,7 @@ public class PacketTest
             playerId = 2, username = "Blake", tick = 12345, hard = true, lane = "rng", mapId = 1,
             message = "Wrong random state on map 1: entry 3: 10 vs 11 random calls",
             saveSections = ["game/tickManager", "map 0/things"],
-            extra = ["map 1 / pawns lane differs at tick 12330"]
+            extra = ["map 1 / pawns lane differs at tick 12330"], ledgerFrom = 12360, ledgerUntil = 15960
         };
 
         yield return new ServerRandAttrRequestPacket { requestId = 3, scope = 1, opinionStart = 366901, entryFrom = 7, entryTo = 8 };

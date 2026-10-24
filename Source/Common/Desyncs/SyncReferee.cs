@@ -31,7 +31,7 @@ public class SyncReferee
     private readonly Dictionary<int, SyncOpinion> reference = new();
     private readonly Queue<int> referenceOrder = new();
     private readonly Dictionary<int, Dictionary<int, SyncOpinion>> pending = new();
-    private readonly Dictionary<string, int> softSeen = new();
+    private readonly SoftRepeats softSeen = new(SoftRepeatEvery, LeafCooldown);
     private readonly HashSet<int> hardReported = new();
     private int unpaired;
 
@@ -203,9 +203,8 @@ public class SyncReferee
 
         // After a resync the same difference is news again: report it and ask for its leaves without waiting
         // out the repeat count or the cooldown
-        var prefix = $"{player.id}|";
-        foreach (var key in softSeen.Keys.Where(k => k.StartsWith(prefix, System.StringComparison.Ordinal)).ToList())
-            softSeen.Remove(key);
+        softSeen.RemoveWhere(k => k.StartsWith($"{player.id}|", System.StringComparison.Ordinal));
+        ledgerUntil.Remove(player.id);
         foreach (var key in lastLeafRequest.Keys.Where(k => k.Item1 == player.id).ToList())
             lastLeafRequest.Remove(key);
         // An answer from before the resync would be compared with one from after it
@@ -229,8 +228,8 @@ public class SyncReferee
         if (server.settings.desyncDebugFreeze && (verdict.hard != null || verdict.laneDiffs.Count > 0))
             HoldForDebug();
 
-        foreach (var (mapId, lane) in verdict.laneDiffs)
-            RequestLeaves(player, mapId, lane);
+        foreach (var (mapId, lane, laneTick) in verdict.laneDiffs)
+            RequestLeaves(player, mapId, lane, laneTick);
 
         // Who made the Rand calls that differ: both games' attribution tables of the first differing entry (and the
         // one before), or of the whole window when only the attribution hash differs
@@ -262,15 +261,14 @@ public class SyncReferee
 
         foreach (var soft in verdict.soft)
         {
-            // The same difference at later ticks is one problem, not many
+            // The same difference at later ticks is one problem, not many; but one that comes back after a quiet
+            // gap is news (2026-10-23: a pawns lane difference in combat healed within a window, came back 26
+            // minutes later and the referee said nothing, as it was not the 50th)
             var key = $"{player.id}|{FaultSignature.Normalize(soft)}";
-            softSeen.TryGetValue(key, out var count);
-            softSeen[key] = count + 1;
-            if (count % SoftRepeatEvery != 0) continue;
+            var (kind, label) = softSeen.Note(key, opinion.startTick);
+            if (kind == SoftRepeats.Kind.Quiet) continue;
 
-            ServerLog.Log($"Sync referee (soft): {player.Username} at tick {opinion.startTick}: {soft}" +
-                          (count > 0 ? $" (seen {count + 1} times)" : ""));
-            Send(player, new ServerSyncVerdictPacket
+            var packet = new ServerSyncVerdictPacket
             {
                 playerId = player.id,
                 username = player.Username,
@@ -278,10 +276,34 @@ public class SyncReferee
                 hard = false,
                 lane = "",
                 mapId = -1,
-                message = count > 0 ? $"{soft} (seen {count + 1} times)" : soft
-            });
+                message = soft + label
+            };
+
+            // A pawns or things difference that is news: both games it goes to record rotation changes and path
+            // requests for a while, from the same upcoming timer tick, so the next diff of those lanes has both
+            // games' ledgers
+            if (kind != SoftRepeats.Kind.Repeat && verdict.hard == null && IsKeptLaneDiff(verdict, soft) &&
+                (!ledgerUntil.TryGetValue(player.id, out var until) || server.StampTick >= until))
+            {
+                packet.ledgerFrom = server.StampTick + LeafLead;
+                packet.ledgerUntil = packet.ledgerFrom + LedgerWindow;
+                ledgerUntil[player.id] = packet.ledgerUntil;
+            }
+
+            ServerLog.Log($"Sync referee (soft): {player.Username} at tick {opinion.startTick}: {soft}{label}" +
+                          (packet.ledgerUntil > packet.ledgerFrom ? $"; steering ledger on from timer tick {packet.ledgerFrom} to {packet.ledgerUntil}" : ""));
+            Send(player, packet);
         }
     }
+
+    private static bool IsKeptLaneDiff(OpinionVerdict verdict, string soft) =>
+        verdict.laneDiffs.Any(d => d.mapId >= 0 && KeptLane(d.lane) &&
+                                   soft.StartsWith(OpinionComparer.LaneDiffText(d.mapId, d.lane), System.StringComparison.Ordinal));
+
+    /// <summary>How long a soft pawns or things difference turns the steering ledger on for, in timer ticks.</summary>
+    public const int LedgerWindow = 3600;
+
+    private readonly Dictionary<int, int> ledgerUntil = new();
 
     /// <summary>
     /// A player's own game found a desync (<see cref="ClientDesyncedPacket"/>). The host logs it and, unless the
@@ -325,6 +347,30 @@ public class SyncReferee
     private const int LeafLead = 30;
     private const int LeafCooldown = 1800;
 
+    /// <summary>
+    /// How many lane checkpoints of the pawns and things lanes each game keeps per map (<see cref="LeafRing{T}"/>),
+    /// so a leaf request for the checkpoint that differed is answered with the entities as they were then.
+    /// </summary>
+    public const int KeptCheckpoints = 8;
+    public const int CheckpointTicks = 60;
+
+    // Two checkpoints of margin: the host runs ahead of the server's stamp, and its ring drops the oldest first
+    private const int KeptReach = (KeptCheckpoints - 2) * CheckpointTicks;
+
+    /// <summary>The lanes whose leaves every game keeps at each checkpoint.</summary>
+    public static bool KeptLane(string lane) => lane is "pawns" or "things";
+
+    /// <summary>
+    /// The tick to ask a lane's leaves at: the checkpoint that differed while every game still keeps it, else a
+    /// little ahead of the server's clock so neither game has passed it yet. Public for the tests.
+    /// </summary>
+    public static (int tick, bool kept) LeafTick(string lane, int checkpointTick, int stampTick)
+    {
+        if (KeptLane(lane) && checkpointTick >= 0 && checkpointTick <= stampTick && stampTick - checkpointTick <= KeptReach)
+            return (checkpointTick, true);
+        return (stampTick + LeafLead, false);
+    }
+
     private class LeafRequest
     {
         public int id;
@@ -336,6 +382,8 @@ public class SyncReferee
         public string? refText;
         public string? otherText;
         public bool refMissed, otherMissed;
+        // Asked at a past checkpoint, answered from what the games kept; a miss asks again ahead of the clock
+        public bool kept;
     }
 
     private readonly Dictionary<int, LeafRequest> leafRequests = new();
@@ -343,10 +391,12 @@ public class SyncReferee
     private int nextLeafRequest;
 
     /// <summary>
-    /// Asks the reference game and the player's to list a lane's entities at the same timer tick, a little ahead
-    /// of the server's clock so neither game has passed it yet.
+    /// Asks the reference game and the player's to list a lane's entities at the same timer tick: the checkpoint
+    /// that differed when both games still keep its leaves (pawns, things), else a little ahead of the server's
+    /// clock so neither game has passed it yet. Leaves 30 ticks later said "No entity differs" for both soft
+    /// differences on 2026-10-23, which had healed by then.
     /// </summary>
-    private void RequestLeaves(ServerPlayer player, int mapId, string lane)
+    private void RequestLeaves(ServerPlayer player, int mapId, string lane, int checkpointTick = -1)
     {
         var key = (player.id, mapId, lane);
         if (lastLeafRequest.TryGetValue(key, out var last) && server.gameTimer - last < LeafCooldown) return;
@@ -355,14 +405,21 @@ public class SyncReferee
         if (reference == null || reference == player) return;
 
         lastLeafRequest[key] = server.gameTimer;
+        var (tick, kept) = server.holdTimerAt != int.MaxValue ? (server.holdTimerAt, false) : LeafTick(lane, checkpointTick, server.StampTick);
+        SendLeafRequest(reference, player, mapId, lane, tick, kept);
+    }
+
+    private void SendLeafRequest(ServerPlayer reference, ServerPlayer player, int mapId, string lane, int tick, bool kept)
+    {
         var request = new LeafRequest
         {
             id = nextLeafRequest++,
-            tick = server.holdTimerAt != int.MaxValue ? server.holdTimerAt : server.StampTick + LeafLead,
+            tick = tick,
             mapId = mapId,
             lane = lane,
             refPlayer = reference.id,
-            otherPlayer = player.id
+            otherPlayer = player.id,
+            kept = kept
         };
         leafRequests[request.id] = request;
 
@@ -408,6 +465,18 @@ public class SyncReferee
         var refName = server.GetPlayer(request.refPlayer)?.Username ?? "host";
         var other = server.GetPlayer(request.otherPlayer);
         var otherName = other?.Username ?? "player";
+
+        // A game that no longer kept that checkpoint (or reloaded since): ask both again ahead of the clock
+        if (request.kept && (request.refMissed || request.otherMissed))
+        {
+            var refPlayer = server.GetPlayer(request.refPlayer);
+            var tick = server.StampTick + LeafLead;
+            ServerLog.Log($"Sync referee: {(request.refMissed ? refName : otherName)}'s game no longer kept the leaves of " +
+                          $"map {request.mapId} / {request.lane} at checkpoint {request.tick}; asking both at tick {tick}");
+            if (refPlayer != null && other != null)
+                SendLeafRequest(refPlayer, other, request.mapId, request.lane, tick, false);
+            return;
+        }
 
         var diff = request.refMissed || request.otherMissed
             ? $"Could not compare: {(request.refMissed ? refName : otherName)}'s game had already passed tick {request.tick}"
@@ -682,4 +751,42 @@ public class FingerprintPairing(
     }
 
     public void Remove(int playerId) => pending.Remove(playerId);
+}
+
+/// <summary>
+/// The referee's count of each soft difference. The first time is reported, then every
+/// <c>repeatEvery</c>-th, and again whenever it comes back after more than <c>quietGap</c> ticks without it: a
+/// difference that heals and returns later is a new event, labelled "(seen N times, last at tick T)".
+/// </summary>
+public class SoftRepeats(int repeatEvery, int quietGap)
+{
+    public enum Kind { Quiet, First, Repeat, Recurrence }
+
+    private readonly Dictionary<string, (int count, int lastTick)> seen = new();
+
+    /// <summary>Counts one sighting of <paramref name="key"/> in the window at <paramref name="tick"/>; the label goes after the message.</summary>
+    public (Kind kind, string label) Note(string key, int tick)
+    {
+        if (!seen.TryGetValue(key, out var was))
+        {
+            seen[key] = (1, tick);
+            return (Kind.First, "");
+        }
+
+        int count = was.count + 1;
+        // Opinions can be judged out of order (a player's wait for the host's); the gap is from the latest seen
+        seen[key] = (count, System.Math.Max(was.lastTick, tick));
+
+        if (tick - was.lastTick > quietGap)
+            return (Kind.Recurrence, $" (seen {count} times, last at tick {was.lastTick})");
+        if (was.count % repeatEvery == 0)
+            return (Kind.Repeat, $" (seen {count} times)");
+        return (Kind.Quiet, "");
+    }
+
+    public void RemoveWhere(System.Func<string, bool> match)
+    {
+        foreach (var key in seen.Keys.Where(match).ToList())
+            seen.Remove(key);
+    }
 }

@@ -22,7 +22,9 @@ namespace Multiplayer.Client.Desyncs
                 on.Add("Slow desync tracing (Multiplayer settings, Desync tracing mode)");
             SteeringLedger.Refresh();
             if (SteeringLedger.Enabled)
-                on.Add("the steering ledger (MpSteeringLedger.flag in the save data folder; delete the file to turn it off)");
+                on.Add(SteeringLedger.FlagFile
+                    ? "the steering ledger (MpSteeringLedger.flag in the save data folder; delete the file to turn it off)"
+                    : $"the steering ledger (on for a soft pawns or things difference, until timer tick {SteeringLedger.AutoUntil})");
             return on;
         }
 

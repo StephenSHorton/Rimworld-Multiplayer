@@ -32,6 +32,8 @@ namespace Multiplayer.Client
         public void OnLoaded(int timer)
         {
             if (currentOpinion == null) nextWindowStart = timer;
+            SyncLanes.ForgetKeptLeaves();
+            Desyncs.SteeringLedger.ResetWindow();
         }
 
         // Contains both local and remote opinions. The first opinion is the oldest one, and the last is the newest one.

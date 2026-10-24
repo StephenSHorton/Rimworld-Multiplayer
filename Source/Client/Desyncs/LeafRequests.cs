@@ -21,6 +21,14 @@ namespace Multiplayer.Client.Desyncs
 
         public static void Add(ServerLeafRequestPacket request)
         {
+            // A checkpoint that passed: its pawns and things as this game kept them (the referee asks for the one
+            // that differed, since a soft difference in combat can heal within the 30 ticks it used to wait)
+            if (TickPatch.Timer >= request.tick && SyncLanes.TryKeptLeaves(request.mapId, request.lane, request.tick, out var keptLines))
+            {
+                Send(request.requestId, string.Join("\n", keptLines));
+                return;
+            }
+
             if (TickPatch.Timer > request.tick)
             {
                 Send(request.requestId, null);
