@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Multiplayer.Client.Util;
+using Multiplayer.Common;
 using Multiplayer.Common.Desyncs;
 using Multiplayer.Common.Networking.Packet;
 using RimWorld;
@@ -114,6 +115,10 @@ namespace Multiplayer.Client
                     into.Add(new LaneHash { tick = tick, mapId = map.uniqueID, lane = lane.name, hash = Safe(lane.name, () => lane.hash(map)), hard = lane.hard,
                         detail = lane.detail != null ? SafeDetail(() => lane.detail(map)) : "" });
                 }
+
+                // Not for the self-check or the report: those run at a tick the ring may already hold, around a reload
+                if (!computeAll)
+                    Safe("kept leaves", () => { KeepLeaves(map, tick); return 0; });
             }
 
             for (int i = 0; i < worldLanes.Count; i++)
@@ -569,7 +574,7 @@ namespace Multiplayer.Client
                 case "things":
                     foreach (var t in map.listerThings.AllThings)
                         if (t is not Mote)
-                            lines.Add((t.thingIDNumber, $"{t.ThingID} def={t.def?.defName} stuff={t.Stuff?.defName} pos={t.positionInt} rot={LaneRotation(t)} stack={t.stackCount} hp={LaneHitPoints(t)}"));
+                            lines.Add((t.thingIDNumber, ThingLeaf.Of(t).Line()));
                     break;
                 case "plants":
                     foreach (var t in map.listerThings.ThingsInGroup(ThingRequestGroup.Plant))
@@ -578,18 +583,7 @@ namespace Multiplayer.Client
                     break;
                 case "pawns":
                     foreach (var p in map.mapPawns.AllPawnsSpawned)
-                    {
-                        var hediffs = p.health?.hediffSet?.hediffs == null ? "" :
-                            string.Join(",", p.health.hediffSet.hediffs.Select(h => $"{h.def?.defName}#{h.loadID}@{h.Part?.Index ?? -1}={Bits(h.severityInt)}").OrderBy(x => x, StringComparer.Ordinal));
-                        var needs = p.needs?.AllNeeds == null ? "" :
-                            string.Join(",", p.needs.AllNeeds.Select(n => $"{n.def?.defName}={Bits(n.curLevelInt)}").OrderBy(x => x, StringComparer.Ordinal));
-                        lines.Add((p.thingIDNumber,
-                            $"{p.ThingID} pos={p.positionInt} faction={p.Faction?.loadID ?? -1} job={p.jobs?.curJob?.def?.defName}#{p.jobs?.curJob?.loadID ?? -1} " +
-                            $"mental={p.mindState?.mentalStateHandler?.CurStateDef?.defName} drafted={p.drafter?.Drafted == true} " +
-                            $"carry={p.carryTracker?.CarriedThing?.ThingID} inv={p.inventory?.innerContainer?.Count ?? -1} eq={p.equipment?.Primary?.ThingID} " +
-                            SteeringLeaf(p) + " " +
-                            $"hediffs=[{hediffs}] needs=[{needs}]"));
-                    }
+                        lines.Add((p.thingIDNumber, PawnLeaf(p)));
                     break;
                 case "terrain":
                 {
@@ -663,6 +657,103 @@ namespace Multiplayer.Client
 
             lines.Sort((a, b) => a.id.CompareTo(b.id));
             return lines.Select(l => l.line).ToList();
+        }
+
+        private static string PawnLeaf(Pawn p)
+        {
+            var hediffs = p.health?.hediffSet?.hediffs == null ? "" :
+                string.Join(",", p.health.hediffSet.hediffs.Select(h => $"{h.def?.defName}#{h.loadID}@{h.Part?.Index ?? -1}={Bits(h.severityInt)}").OrderBy(x => x, StringComparer.Ordinal));
+            var needs = p.needs?.AllNeeds == null ? "" :
+                string.Join(",", p.needs.AllNeeds.Select(n => $"{n.def?.defName}={Bits(n.curLevelInt)}").OrderBy(x => x, StringComparer.Ordinal));
+            return $"{p.ThingID} pos={p.positionInt} faction={p.Faction?.loadID ?? -1} job={p.jobs?.curJob?.def?.defName}#{p.jobs?.curJob?.loadID ?? -1} " +
+                   $"mental={p.mindState?.mentalStateHandler?.CurStateDef?.defName} drafted={p.drafter?.Drafted == true} " +
+                   $"carry={p.carryTracker?.CarriedThing?.ThingID} inv={p.inventory?.innerContainer?.Count ?? -1} eq={p.equipment?.Primary?.ThingID} " +
+                   SteeringLeaf(p) + " " +
+                   $"hediffs=[{hediffs}] needs=[{needs}]";
+        }
+
+        // A thing's leaf values as they were: its id and def never change, so the thing itself names it later
+        private readonly struct ThingLeaf(Thing thing, ThingDef stuff, IntVec3 pos, int rot, int stack, int hp)
+        {
+            public readonly Thing thing = thing;
+
+            public static ThingLeaf Of(Thing t) => new(t, t.Stuff, t.positionInt, LaneRotation(t), t.stackCount, LaneHitPoints(t));
+
+            public string Line() => $"{thing.ThingID} def={thing.def?.defName} stuff={stuff?.defName} pos={pos} rot={rot} stack={stack} hp={hp}";
+        }
+
+        // --- Kept leaves: the pawns and things lanes of the last few checkpoints ---
+
+        // What a map's pawns and things lanes were made of at one checkpoint. Things are kept as values and written
+        // out only when asked (a played map has thousands); a pawn's line is kept whole and reused while its hash
+        // stays the same.
+        private class KeptLeaves
+        {
+            public readonly List<ThingLeaf> things = new();
+            public readonly List<(int id, string line)> pawns = new();
+        }
+
+        private class PawnLines
+        {
+            public Dictionary<int, (ulong hash, string line)> current = new(), previous = new();
+        }
+
+        private static readonly LeafRing<KeptLeaves> kept = new(SyncReferee.KeptCheckpoints);
+        private static readonly Stack<KeptLeaves> spareLeaves = new();
+        private static readonly Dictionary<int, PawnLines> pawnLines = new();
+
+        private static void KeepLeaves(Map map, int tick)
+        {
+            var leaves = spareLeaves.Count > 0 ? spareLeaves.Pop() : new KeptLeaves();
+            leaves.things.Clear();
+            leaves.pawns.Clear();
+
+            var things = map.listerThings.AllThings;
+            for (int i = 0; i < things.Count; i++)
+                if (things[i] is not Mote)
+                    leaves.things.Add(ThingLeaf.Of(things[i]));
+
+            if (!pawnLines.TryGetValue(map.uniqueID, out var cache))
+                pawnLines[map.uniqueID] = cache = new PawnLines();
+            (cache.previous, cache.current) = (cache.current, cache.previous);
+            cache.current.Clear();
+            var pawns = map.mapPawns.AllPawnsSpawned;
+            for (int i = 0; i < pawns.Count; i++)
+            {
+                var p = pawns[i];
+                var hash = PawnHash(p);
+                var line = cache.previous.TryGetValue(p.thingIDNumber, out var was) && was.hash == hash ? was.line : PawnLeaf(p);
+                cache.current[p.thingIDNumber] = (hash, line);
+                leaves.pawns.Add((p.thingIDNumber, line));
+            }
+
+            var evicted = kept.Add(map.uniqueID, tick, leaves);
+            if (evicted != null && spareLeaves.Count < 4)
+                spareLeaves.Push(evicted);
+        }
+
+        /// <summary>
+        /// A map's pawns or things leaves as they were at a lane checkpoint this game still keeps, sorted by id as
+        /// <see cref="Leaves"/> sorts them; false for another lane or a checkpoint no longer kept.
+        /// </summary>
+        public static bool TryKeptLeaves(int mapId, string lane, int tick, out List<string> lines)
+        {
+            lines = null;
+            if (!SyncReferee.KeptLane(lane) || !kept.TryGet(mapId, tick, out var leaves)) return false;
+
+            var sorted = lane == "things"
+                ? leaves.things.Select(t => (id: t.thing.thingIDNumber, line: t.Line())).ToList()
+                : leaves.pawns.ToList();
+            sorted.Sort((a, b) => a.id.CompareTo(b.id));
+            lines = sorted.Select(l => l.line).ToList();
+            return true;
+        }
+
+        /// <summary>A new game (load, resync): the kept checkpoints were another game's.</summary>
+        public static void ForgetKeptLeaves()
+        {
+            kept.Clear();
+            pawnLines.Clear();
         }
 
         // The managers the zones and designations lanes cover, with the prefix that names their faction in a leaf line

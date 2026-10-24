@@ -96,6 +96,8 @@ namespace Multiplayer.Client
             }
 
             SoftCount++;
+            if (packet.ledgerUntil > packet.ledgerFrom)
+                Desyncs.SteeringLedger.Arm(packet.ledgerFrom, packet.ledgerUntil, TickPatch.Timer);
             if (packet.lane == "fingerprint")
                 Desyncs.JoinFingerprint.OnFingerprintDiffers(packet);
             Desyncs.IdLedger.OnLaneDiffers(packet.message);

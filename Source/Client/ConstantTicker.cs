@@ -113,6 +113,7 @@ namespace Multiplayer.Client
         private static void TickSyncCoordinator()
         {
             Desyncs.LeafRequests.Tick(TickPatch.Timer);
+            Desyncs.SteeringLedger.Tick(TickPatch.Timer);
 
             if (TickPatch.Timer % 30 == 0)
             {

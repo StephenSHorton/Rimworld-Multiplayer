@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using HarmonyLib;
 using Multiplayer.Client.Util;
+using Multiplayer.Common;
 using UnityEngine;
 using RimWorld;
 using Verse;
@@ -18,7 +19,8 @@ namespace Multiplayer.Client.Desyncs
     /// <c>MpSteeringLedger.flag</c> in the save data folder turns it on (dev mode alone no longer does: a stack per
     /// rotation change and path request cost Blake's game several ms a tick); off, each patch returns at its first line.
     /// The patches are applied on every game either way, so the Harmony patches row of the join fingerprint stays
-    /// the same. When the server's leaf diff for a map's pawns or things lane arrives (both games get it), each game
+    /// the same. A soft pawns or things difference turns it on for <see cref="SyncReferee.LedgerWindow"/>
+    /// timer ticks, from the timer tick the referee's verdict names, on both games it goes to. When the server's leaf diff for a map's pawns or things lane arrives (both games get it), each game
     /// writes the entries of the pawns the diff names to MpDesyncs/steering-[player]-[tick]-[lane].txt.
     /// </summary>
     public static class SteeringLedger
@@ -57,7 +59,53 @@ namespace Multiplayer.Client.Desyncs
         // It was read once per process, and with a stack per rotation change it can cost several ms a tick.
         public static void Refresh()
         {
-            Enabled = Multiplayer.Client != null && FlagFile;
+            Enabled = Multiplayer.Client != null && (FlagFile || autoOn);
+        }
+
+        // The window a soft pawns or things difference turned it on for (the referee's verdict carries it), in timer
+        // ticks; it switches at the same timer tick on every game the verdict reached in time
+        private static int autoFrom = -1, autoUntil = -1;
+        private static bool autoOn;
+
+        /// <summary>A verdict's window: armed only while this game is still before its start.</summary>
+        public static void Arm(int from, int until, int timer)
+        {
+            if (until <= from) return;
+            if (timer >= from)
+            {
+                MpLog.Warn($"Steering ledger: the window from timer tick {from} to {until} arrived at {timer}, too late to start in step with the other game; left off");
+                return;
+            }
+            if (autoFrom >= 0)
+            {
+                // Already armed or on: the window grows to the later end, from the start already set
+                autoUntil = System.Math.Max(autoUntil, until);
+                MpLog.Log($"Steering ledger: window now ends at timer tick {autoUntil}");
+                return;
+            }
+
+            autoFrom = from;
+            autoUntil = until;
+            MpLog.Log($"Steering ledger: on from timer tick {from} to {until} for a soft pawns or things difference");
+        }
+
+        /// <summary>Called every timer tick, at the same point of the tick on every game.</summary>
+        public static void Tick(int timer)
+        {
+            if (autoFrom < 0) return;
+            if (!autoOn && timer >= autoFrom && timer < autoUntil)
+            {
+                autoOn = true;
+                Refresh();
+                MpLog.Log($"Steering ledger: on at timer tick {timer} until {autoUntil}");
+            }
+            else if (timer >= autoUntil)
+            {
+                autoOn = false;
+                autoFrom = autoUntil = -1;
+                Refresh();
+                MpLog.Log($"Steering ledger: window ended at timer tick {timer}{(Enabled ? " (still on: MpSteeringLedger.flag)" : "")}");
+            }
         }
 
         // What Pawn_RotationTracker.Face was given while it sets a rotation: the point, the pawn's own DrawPos and
@@ -111,7 +159,7 @@ namespace Multiplayer.Client.Desyncs
             if (!Enabled)
             {
                 // The other game may write its file; say why this one has none
-                MpLog.Log($"Steering ledger off on this game, no file for the map {mapId} / {lane} leaf diff at timer tick {tick} (put MpSteeringLedger.flag in the save data folder to turn it on)");
+                MpLog.Log($"Steering ledger off on this game, no file for the map {mapId} / {lane} leaf diff at timer tick {tick} (a soft pawns or things difference turns it on for {SyncReferee.LedgerWindow} timer ticks; MpSteeringLedger.flag in the save data folder keeps it on)");
                 return;
             }
 

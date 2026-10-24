@@ -42,7 +42,7 @@ public class SyncRefereeTest
         return player;
     }
 
-    private static byte[] Opinion(int tick, ulong pawnsHash) => BinderOf.Identity<SyncOpinion>().Serialize(new SyncOpinion
+    private static byte[] Opinion(int tick, ulong pawnsHash, string lane = "pawns") => BinderOf.Identity<SyncOpinion>().Serialize(new SyncOpinion
     {
         startTick = tick,
         commandRandomStates = [1],
@@ -50,7 +50,7 @@ public class SyncRefereeTest
         mapRandomStates = [new MapRandomState { mapId = 0, randomStates = [3] }],
         traceHashes = [],
         faults = [],
-        lanes = [new LaneHash { tick = tick, mapId = 0, lane = "pawns", hash = pawnsHash, hard = false }]
+        lanes = [new LaneHash { tick = tick, mapId = 0, lane = lane, hash = pawnsHash, hard = false }]
     });
 
     private static int Sent(ServerPlayer player, Packets type) =>
@@ -200,5 +200,128 @@ public class SyncRefereeTest
         var lines = SyncReferee.HarmonyRowWarnings(warnings, "Blake");
         Assert.That(lines, Has.Count.EqualTo(1));
         Assert.That(lines[0], Does.Contain("2 methods, AA (host) vs 3 methods, BB (Blake)"));
+    }
+
+    private static List<T> Read<T>(ServerPlayer player, Packets type) where T : struct, IPacket =>
+        ((RecordingConnection)player.conn).Sent<T>(type);
+
+    [Test]
+    public void SoftDifferenceBackAfterAQuietGapIsReportedAgain()
+    {
+        var host = AddPlayer("host", isHost: true);
+        var blake = AddPlayer("Blake");
+
+        Exchange(host, blake, 300);
+        Exchange(host, blake, 360);
+        Assert.That(Sent(blake, Packets.Server_SyncVerdict), Is.EqualTo(1));
+
+        // 2026-10-23: healed, then back much later; the 3rd sighting is not the 51st, but it is news
+        Exchange(host, blake, 2400);
+        var verdicts = Read<ServerSyncVerdictPacket>(blake, Packets.Server_SyncVerdict);
+        Assert.That(verdicts, Has.Count.EqualTo(2));
+        Assert.That(verdicts[1].message, Does.EndWith("(seen 3 times, last at tick 360)"));
+        Assert.That(Read<ServerSyncVerdictPacket>(host, Packets.Server_SyncVerdict)[1].message, Is.EqualTo(verdicts[1].message));
+
+        // Straight after, it is a repeat again
+        Exchange(host, blake, 2460);
+        Assert.That(Sent(blake, Packets.Server_SyncVerdict), Is.EqualTo(2));
+    }
+
+    [Test]
+    public void SoftRepeatsCountsRepeatsAndGaps()
+    {
+        var repeats = new SoftRepeats(repeatEvery: 3, quietGap: 100);
+        Assert.That(repeats.Note("k", 10), Is.EqualTo((SoftRepeats.Kind.First, "")));
+        Assert.That(repeats.Note("k", 20).kind, Is.EqualTo(SoftRepeats.Kind.Quiet));
+        Assert.That(repeats.Note("k", 30).kind, Is.EqualTo(SoftRepeats.Kind.Quiet));
+        Assert.That(repeats.Note("k", 40), Is.EqualTo((SoftRepeats.Kind.Repeat, " (seen 4 times)")));
+        // Judged out of order: an older window doesn't move the last sighting back
+        Assert.That(repeats.Note("k", 35).kind, Is.EqualTo(SoftRepeats.Kind.Quiet));
+        Assert.That(repeats.Note("k", 140).kind, Is.EqualTo(SoftRepeats.Kind.Quiet));
+        Assert.That(repeats.Note("k", 241), Is.EqualTo((SoftRepeats.Kind.Recurrence, " (seen 7 times, last at tick 140)")));
+        Assert.That(repeats.Note("other", 241).kind, Is.EqualTo(SoftRepeats.Kind.First));
+
+        repeats.RemoveWhere(k => k == "k");
+        Assert.That(repeats.Note("k", 250).kind, Is.EqualTo(SoftRepeats.Kind.First));
+    }
+
+    [Test]
+    public void LeavesAreAskedAtTheCheckpointThatDiffered()
+    {
+        var host = AddPlayer("host", isHost: true);
+        var blake = AddPlayer("Blake");
+
+        // Judged 200 ticks after its checkpoint: still kept by every game
+        server.referee.OnOpinion(host, Opinion(300, 1), true);
+        server.gameTimer = 500;
+        server.referee.OnOpinion(blake, Opinion(300, 2), false);
+        var request = Read<ServerLeafRequestPacket>(blake, Packets.Server_LeafRequest).Single();
+        Assert.That(request.tick, Is.EqualTo(300));
+        Assert.That(Read<ServerLeafRequestPacket>(host, Packets.Server_LeafRequest).Single().tick, Is.EqualTo(300));
+
+        // The host's game no longer kept it: both are asked again ahead of the clock
+        server.gameTimer = 520;
+        server.referee.OnLeaves(host, new ClientLeavesPacket { requestId = request.requestId, missed = true, gzippedLines = LeafDiff.Gzip("") });
+        server.referee.OnLeaves(blake, new ClientLeavesPacket { requestId = request.requestId, gzippedLines = LeafDiff.Gzip("Human1 pos=(1, 0, 1)") });
+        Assert.That(Sent(blake, Packets.Server_LeafDiff), Is.EqualTo(0));
+        var again = Read<ServerLeafRequestPacket>(blake, Packets.Server_LeafRequest);
+        Assert.That(again, Has.Count.EqualTo(2));
+        Assert.That(again[1].tick, Is.EqualTo(550));
+        Assert.That(Read<ServerLeafRequestPacket>(host, Packets.Server_LeafRequest)[1].tick, Is.EqualTo(550));
+
+        // The fallback's answers make the diff
+        server.referee.OnLeaves(host, new ClientLeavesPacket { requestId = again[1].requestId, gzippedLines = LeafDiff.Gzip("Human1 pos=(1, 0, 1)") });
+        server.referee.OnLeaves(blake, new ClientLeavesPacket { requestId = again[1].requestId, gzippedLines = LeafDiff.Gzip("Human1 pos=(2, 0, 1)") });
+        Assert.That(Sent(blake, Packets.Server_LeafDiff), Is.EqualTo(1));
+    }
+
+    [Test]
+    public void OldCheckpointIsAskedAheadOfTheClock()
+    {
+        var host = AddPlayer("host", isHost: true);
+        var blake = AddPlayer("Blake");
+
+        server.referee.OnOpinion(host, Opinion(300, 1), true);
+        server.gameTimer = 1000;
+        server.referee.OnOpinion(blake, Opinion(300, 2), false);
+        Assert.That(Read<ServerLeafRequestPacket>(blake, Packets.Server_LeafRequest).Single().tick, Is.EqualTo(1030));
+    }
+
+    [Test]
+    public void SoftPawnsDifferenceTurnsTheLedgerOnForBothGames()
+    {
+        var host = AddPlayer("host", isHost: true);
+        var blake = AddPlayer("Blake");
+
+        Exchange(host, blake, 300);
+        var first = Read<ServerSyncVerdictPacket>(blake, Packets.Server_SyncVerdict).Single();
+        Assert.That((first.ledgerFrom, first.ledgerUntil), Is.EqualTo((330, 330 + SyncReferee.LedgerWindow)));
+        var hostCopy = Read<ServerSyncVerdictPacket>(host, Packets.Server_SyncVerdict).Single();
+        Assert.That((hostCopy.ledgerFrom, hostCopy.ledgerUntil), Is.EqualTo((first.ledgerFrom, first.ledgerUntil)));
+
+        // Back after a gap while the window is still open: reported, the window is left as it is
+        Exchange(host, blake, 360);
+        Exchange(host, blake, 2400);
+        var second = Read<ServerSyncVerdictPacket>(blake, Packets.Server_SyncVerdict)[1];
+        Assert.That(second.ledgerUntil, Is.EqualTo(0));
+
+        // Back after the window ended: a new one
+        Exchange(host, blake, 6000);
+        var third = Read<ServerSyncVerdictPacket>(blake, Packets.Server_SyncVerdict)[2];
+        Assert.That((third.ledgerFrom, third.ledgerUntil), Is.EqualTo((6030, 6030 + SyncReferee.LedgerWindow)));
+    }
+
+    [Test]
+    public void OtherSoftLanesLeaveTheLedgerOff()
+    {
+        var host = AddPlayer("host", isHost: true);
+        var blake = AddPlayer("Blake");
+
+        server.gameTimer = 300;
+        server.referee.OnOpinion(host, Opinion(300, 1, "plants"), true);
+        server.referee.OnOpinion(blake, Opinion(300, 2, "plants"), false);
+        var verdict = Read<ServerSyncVerdictPacket>(blake, Packets.Server_SyncVerdict).Single();
+        Assert.That(verdict.ledgerUntil, Is.EqualTo(0));
+        Assert.That(Read<ServerLeafRequestPacket>(blake, Packets.Server_LeafRequest).Single().tick, Is.EqualTo(330));
     }
 }

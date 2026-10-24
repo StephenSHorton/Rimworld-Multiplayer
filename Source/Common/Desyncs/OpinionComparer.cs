@@ -14,8 +14,8 @@ public class OpinionVerdict
     public string? hardLane;
     public int hardMapId = -1;
     public readonly List<string> soft = [];
-    // Every lane that differs, hard or soft
-    public readonly List<(int mapId, string lane)> laneDiffs = [];
+    // Every lane that differs, hard or soft, and the checkpoint (timer tick) it differed at
+    public readonly List<(int mapId, string lane, int tick)> laneDiffs = [];
     // Every random state list that differs (scope: map id, -1 world, -2 commands) and its first differing entry
     public readonly List<(int scope, int entry)> rngDiffs = [];
     // Scopes whose Rand attribution hash differs while their random states are equal
@@ -124,6 +124,9 @@ public static class OpinionComparer
         }
     }
 
+    /// <summary>Starts the message of a lane difference: "map 0 / pawns lane differs".</summary>
+    public static string LaneDiffText(int mapId, string lane) => $"{(mapId == -1 ? "world" : $"map {mapId}")} / {lane} lane differs";
+
     private static void CompareLanes(List<LaneHash> reference, List<LaneHash> other, OpinionVerdict verdict)
     {
         var otherByKey = new Dictionary<(int, int, string), LaneHash>();
@@ -137,9 +140,8 @@ public static class OpinionComparer
 
             if (theirs.hash == lane.hash) continue;
 
-            verdict.laneDiffs.Add((lane.mapId, lane.lane));
-            var where = lane.mapId == -1 ? "world" : $"map {lane.mapId}";
-            var msg = $"{where} / {lane.lane} lane differs at tick {lane.tick}";
+            verdict.laneDiffs.Add((lane.mapId, lane.lane, lane.tick));
+            var msg = $"{LaneDiffText(lane.mapId, lane.lane)} at tick {lane.tick}";
             // A lane of a few values (time) carries them: both sides' say which input moved
             if (!string.IsNullOrEmpty(lane.detail) || !string.IsNullOrEmpty(theirs.detail))
                 msg += $" (reference: {lane.detail}; other: {theirs.detail})";
