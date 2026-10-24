@@ -18,7 +18,8 @@ namespace Multiplayer.Common
         public long packetsReceived, bytesReceived, packetsSent, bytesSent;
         public long LastReceivedAgeMs => Environment.TickCount64 - lastReceivedAtMs;
         public string TrafficText => $"last packet {LastReceivedAgeMs} ms ago, received {packetsReceived} packets ({bytesReceived} bytes), " +
-                                     $"sent {packetsSent} ({bytesSent} bytes)";
+                                     $"sent {packetsSent} ({bytesSent} bytes), reliable backlog {ReliableBacklogBytes} bytes, " +
+                                     $"low priority queued {lowPriority.Count} ({lowPriorityBytes} bytes), dropped {lowPriorityDropped}";
 
         public ConnectionStateEnum State { get; private set; }
         public MpConnectionState? StateObj { get; private set; }
@@ -151,6 +152,94 @@ namespace Multiplayer.Common
         }
 
         public void SendFragmented(SerializedPacket packet) => SendFragmented(packet.id, packet.data);
+
+        // --- Low priority: diagnostics never get in front of commands ---
+        // Every reliable packet shares one ordered stream (LiteNet's channel 0; Steam's reliable P2P session), so a
+        // backlog there holds back the commands behind it, and a game waiting for a counted command can't tick
+        // (2026-10-23: the host's sync opinions, about 1 MB/s with desync traces on at Ultrafast, kept a client 98
+        // ticks behind and the server paused every few seconds). Sync opinions, traces, entity listings and Rand
+        // attribution wait here instead, and go out only while the connection's reliable queue is short. A second
+        // channel wouldn't do on Steam, where channels share the session's reliable stream.
+
+        // Below this many bytes queued for the reliable stream, the next low priority packet goes out
+        public const long LowPriorityBacklogLimit = 32 * 1024;
+        // Opinions are compared by window and one that never arrives is skipped, so no more than this many wait
+        public const int MaxDroppableQueued = 4;
+
+        private readonly List<(SerializedPacket packet, bool droppable, ConnectionStateEnum state)> lowPriority = [];
+        private long lowPriorityBytes;
+        public long lowPriorityDropped;
+
+        public int LowPriorityQueued => lowPriority.Count;
+
+        /// <summary>Bytes the transport still has to send reliably; 0 when it can't say (an in-memory connection).</summary>
+        public virtual long ReliableBacklogBytes => 0;
+
+        /// <summary>
+        /// Queues a diagnostic packet behind everything already sent. <paramref name="droppable"/>: when more of those
+        /// wait than <see cref="MaxDroppableQueued"/>, the oldest goes. A packet still queued when the connection
+        /// changes state is dropped too: the new state may have no handler for it, which a reliable packet makes a
+        /// disconnect. Must be called from the thread that sends this connection's fragmented packets.
+        /// </summary>
+        public void SendLowPriority(SerializedPacket packet, bool droppable = false)
+        {
+            if (State == ConnectionStateEnum.Disconnected)
+                return;
+
+            if (droppable)
+            {
+                int queued = 0;
+                foreach (var entry in lowPriority)
+                    if (entry.droppable) queued++;
+                for (int i = 0; queued >= MaxDroppableQueued && i < lowPriority.Count;)
+                {
+                    if (!lowPriority[i].droppable) { i++; continue; }
+                    DropLowPriority(i);
+                    queued--;
+                }
+            }
+
+            lowPriority.Add((packet, droppable, State));
+            lowPriorityBytes += packet.data.Length;
+            FlushLowPriority();
+        }
+
+        /// <summary>Sends queued low priority packets while the reliable queue is short; called every network tick.</summary>
+        public void FlushLowPriority()
+        {
+            while (lowPriority.Count > 0 && State != ConnectionStateEnum.Disconnected)
+            {
+                if (lowPriority[0].state != State)
+                {
+                    DropLowPriority(0);
+                    continue;
+                }
+
+                if (ReliableBacklogBytes >= LowPriorityBacklogLimit)
+                    return;
+
+                var (packet, _, _) = lowPriority[0];
+                lowPriority.RemoveAt(0);
+                lowPriorityBytes -= packet.data.Length;
+                try
+                {
+                    SendFragmented(packet);
+                }
+                catch (PacketSendException e)
+                {
+                    ServerLog.Error($"{this}: couldn't send low priority {packet.id}: {e.Message}");
+                }
+            }
+        }
+
+        private void DropLowPriority(int index)
+        {
+            lowPriorityBytes -= lowPriority[index].packet.data.Length;
+            lowPriority.RemoveAt(index);
+            if (lowPriorityDropped++ % 100 == 0)
+                ServerLog.Log($"{this}: dropped a queued low priority packet ({lowPriorityDropped} so far); the reliable stream is backed up " +
+                              $"({ReliableBacklogBytes} bytes) or the connection changed state");
+        }
 
         protected abstract void SendRaw(byte[] raw, bool reliable = true);
 

@@ -42,6 +42,10 @@ namespace Multiplayer.Client.Networking
 
         public abstract void OnError(EP2PSessionError error);
 
+        // The whole session's send queue: every channel to that player shares it
+        public override long ReliableBacklogBytes =>
+            SteamNetworking.GetP2PSessionState(remoteId, out P2PSessionState_t state) ? state.m_nBytesQueuedForSend : 0;
+
         protected override void OnClose(ServerDisconnectPacket? goodbye)
         {
             if (goodbye.HasValue) Send(goodbye.Value);

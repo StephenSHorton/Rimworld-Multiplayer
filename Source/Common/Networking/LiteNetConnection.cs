@@ -15,6 +15,11 @@ namespace Multiplayer.Common
                 ServerLog.Error($"SendRaw() called with invalid connection state ({peer}): {peer.ConnectionState}");
         }
 
+        // Fragments are 1 KB and a bigger reliable packet goes in MTU-sized parts, so a count of queued parts times
+        // the MTU is near enough
+        public override long ReliableBacklogBytes =>
+            peer.ConnectionState == ConnectionState.Connected ? (long)peer.GetPacketsCountInReliableQueue(0, true) * peer.Mtu : 0;
+
         protected override void OnClose(ServerDisconnectPacket? goodbye)
         {
             if (goodbye.HasValue)

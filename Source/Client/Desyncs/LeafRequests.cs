@@ -84,7 +84,7 @@ namespace Multiplayer.Client.Desyncs
                 missed = text == null,
                 gzippedLines = LeafDiff.Gzip(text ?? "")
             };
-            Multiplayer.Client?.SendFragmented(packet.Serialize());
+            Multiplayer.Client?.SendLowPriority(packet.Serialize());
         }
 
         internal static void PruneOldFiles(string pattern, int keep)

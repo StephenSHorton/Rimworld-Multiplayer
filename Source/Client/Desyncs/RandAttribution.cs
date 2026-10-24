@@ -862,7 +862,7 @@ namespace Multiplayer.Client.Desyncs
                 gzStacks = LeafDiff.Gzip(ok ? stacks : ""),
                 offThreadCalls = offThreadCalls
             };
-            Multiplayer.Client?.SendFragmented(packet.Serialize());
+            Multiplayer.Client?.SendLowPriority(packet.Serialize());
         }
 
         /// <summary>Resolves ids to names for the table lines (defs by short hash, things by id).</summary>

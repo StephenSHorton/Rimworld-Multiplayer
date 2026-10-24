@@ -218,8 +218,9 @@ namespace Multiplayer.Client
                 var span = Native.IsMono ? 0 : TraceBlocks.Size;
                 var response = info?.GetFormattedStackTracesForRange(packet.diffAt, span) ?? "Traces not available";
 
-                // Fragmented: a block of Slow mode traces with their stacks can pass a single packet's 64 KB
-                connection.SendFragmented(new ClientTracesPacket
+                // Fragmented, as a block of Slow mode traces with their stacks can pass a single packet's 64 KB, and low
+                // priority, behind the commands
+                connection.SendLowPriority(new ClientTracesPacket
                     {
                         playerId = packet.playerId,
                         rawTraces = GZipStream.CompressString(response),

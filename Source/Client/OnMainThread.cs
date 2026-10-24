@@ -61,6 +61,9 @@ namespace Multiplayer.Client
                 }
             }
 
+            // Diagnostics wait until the reliable stream to the server has room (ConnectionBase.SendLowPriority)
+            Multiplayer.Client?.FlushLowPriority();
+
             // After the packets are read: a frame after a long block judges the server by what queued up during it
             Multiplayer.session?.WatchConnection();
         }

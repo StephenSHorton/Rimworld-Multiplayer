@@ -32,7 +32,7 @@ namespace Multiplayer.Common
         public void HandleTraces(ClientTracesPacket packet)
         {
             if (!Player.IsHost) return;
-            Server.GetPlayer(packet.playerId)?.conn.SendFragmented(ServerTracesPacket.Transfer(packet.rawTraces, packet.rawJittedMethods).Serialize());
+            Server.GetPlayer(packet.playerId)?.conn.SendLowPriority(ServerTracesPacket.Transfer(packet.rawTraces, packet.rawJittedMethods).Serialize());
         }
 
         [TypedPacketHandler]
@@ -214,8 +214,10 @@ namespace Multiplayer.Common
             if (Server.worldData.syncInfos.Count > 10)
                 Server.worldData.syncInfos.RemoveAt(0);
 
+            // Low priority and droppable: commands go first, and a player too far behind for all of them skips some
+            var forwarded = new ServerSyncInfoPacket { rawSyncOpinion = packet.rawSyncOpinion }.Serialize();
             foreach (var p in Server.PlayingPlayers.Where(p => !p.IsArbiter && (arbiter || !p.IsHost)))
-                p.conn.SendFragmented(new ServerSyncInfoPacket { rawSyncOpinion = packet.rawSyncOpinion }.Serialize());
+                p.conn.SendLowPriority(forwarded, droppable: true);
         }
 
         [TypedPacketHandler]

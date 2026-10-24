@@ -427,7 +427,7 @@ public class SyncReferee
             gzippedText = LeafDiff.Gzip(diff)
         };
         foreach (var p in new[] { server.GetPlayer(request.refPlayer), other })
-            p?.conn.SendFragmented(result.Serialize());
+            p?.conn.SendLowPriority(result.Serialize());
     }
 
     // --- Rand attribution: who made the Rand calls that differ ---
@@ -517,7 +517,7 @@ public class SyncReferee
             ServerLog.Log($"Sync referee: [RandAttr] {refName} vs {otherName}: {result.summary}");
             var bytes = result.Serialize();
             foreach (var p in new[] { server.GetPlayer(request.refPlayer), other })
-                p?.conn.SendFragmented(bytes);
+                p?.conn.SendLowPriority(bytes);
         }
         catch (Exception e)
         {

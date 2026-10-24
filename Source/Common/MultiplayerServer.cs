@@ -250,6 +250,10 @@ namespace Multiplayer.Common
         {
             NetTimer++;
 
+            // Diagnostics wait until a player's reliable stream has room (ConnectionBase.SendLowPriority)
+            foreach (var player in playerManager.Players)
+                player.conn.FlushLowPriority();
+
             if (NetTimer % NetTicksPerSecond == 0)
             {
                 playerManager.SendLatencies();

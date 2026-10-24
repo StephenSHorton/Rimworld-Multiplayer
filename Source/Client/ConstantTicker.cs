@@ -136,7 +136,8 @@ namespace Multiplayer.Client
                     // Off Mono a trace difference is soft: one hash per block of traces, not one per Rand call
                     else if (!Native.IsMono)
                         net.traceHashes = TraceBlocks.Of(net.traceHashes);
-                    Multiplayer.Client.SendFragmented(new ClientSyncInfoPacket { SyncOpinion = net }.Serialize());
+                    // Low priority: the commands this game sends go first (ConnectionBase.SendLowPriority)
+                    Multiplayer.Client.SendLowPriority(new ClientSyncInfoPacket { SyncOpinion = net }.Serialize(), droppable: true);
                 }
                 catch (Exception e)
                 {
