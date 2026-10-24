@@ -27,8 +27,13 @@ namespace Multiplayer.Common
         // This is set during rejoining and is usually caused by connection state mismatch.
         public bool Lenient { get; set; }
 
+        // Counts every change of state, so a queued low priority packet can tell a resync (Playing, Loading and back
+        // to Playing between two flushes) from no change at all
+        private int stateChanges;
+
         public void ChangeState(MpConnectionState state)
         {
+            stateChanges++;
             if (StateObj != null)
                 StateObj.alive = false;
 
@@ -39,6 +44,7 @@ namespace Multiplayer.Common
 
         public void ChangeState(ConnectionStateEnum state)
         {
+            stateChanges++;
             if (StateObj != null)
                 StateObj.alive = false;
 
@@ -163,10 +169,12 @@ namespace Multiplayer.Common
 
         // Below this many bytes queued for the reliable stream, the next low priority packet goes out
         public const long LowPriorityBacklogLimit = 32 * 1024;
-        // Opinions are compared by window and one that never arrives is skipped, so no more than this many wait
-        public const int MaxDroppableQueued = 4;
+        // Opinions are compared by window and one that never arrives is skipped, so no more than this many bytes of
+        // them wait (with trace hashes in blocks one is a few hundred bytes: a joiner downloading the world behind them
+        // keeps a minute or more of the host's, which its catch-up compares against)
+        public const long MaxDroppableQueuedBytes = 256 * 1024;
 
-        private readonly List<(SerializedPacket packet, bool droppable, ConnectionStateEnum state)> lowPriority = [];
+        private readonly List<(SerializedPacket packet, bool droppable, int stateChanges)> lowPriority = [];
         private long lowPriorityBytes;
         public long lowPriorityDropped;
 
@@ -176,8 +184,9 @@ namespace Multiplayer.Common
         public virtual long ReliableBacklogBytes => 0;
 
         /// <summary>
-        /// Queues a diagnostic packet behind everything already sent. <paramref name="droppable"/>: when more of those
-        /// wait than <see cref="MaxDroppableQueued"/>, the oldest goes. A packet still queued when the connection
+        /// Queues a diagnostic packet behind everything already sent. <paramref name="droppable"/>: when more than
+        /// <see cref="MaxDroppableQueuedBytes"/> of those wait, the oldest go. A packet over the limit goes out whole once
+        /// the stream has room, and what is sent after it waits behind it (a big Rand attribution diff, after a desync). A packet still queued when the connection
         /// changes state is dropped too: the new state may have no handler for it, which a reliable packet makes a
         /// disconnect. Must be called from the thread that sends this connection's fragmented packets.
         /// </summary>
@@ -188,18 +197,18 @@ namespace Multiplayer.Common
 
             if (droppable)
             {
-                int queued = 0;
+                long queued = packet.data.Length;
                 foreach (var entry in lowPriority)
-                    if (entry.droppable) queued++;
-                for (int i = 0; queued >= MaxDroppableQueued && i < lowPriority.Count;)
+                    if (entry.droppable) queued += entry.packet.data.Length;
+                for (int i = 0; queued > MaxDroppableQueuedBytes && i < lowPriority.Count;)
                 {
                     if (!lowPriority[i].droppable) { i++; continue; }
+                    queued -= lowPriority[i].packet.data.Length;
                     DropLowPriority(i);
-                    queued--;
                 }
             }
 
-            lowPriority.Add((packet, droppable, State));
+            lowPriority.Add((packet, droppable, stateChanges));
             lowPriorityBytes += packet.data.Length;
             FlushLowPriority();
         }
@@ -209,7 +218,7 @@ namespace Multiplayer.Common
         {
             while (lowPriority.Count > 0 && State != ConnectionStateEnum.Disconnected)
             {
-                if (lowPriority[0].state != State)
+                if (lowPriority[0].stateChanges != stateChanges)
                 {
                     DropLowPriority(0);
                     continue;
