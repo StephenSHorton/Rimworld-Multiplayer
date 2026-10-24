@@ -89,10 +89,11 @@ namespace Multiplayer.Client
                     else
                         throw new Exception($"Syncing unsupported transferable type {reference?.GetType()}");
 
-                    // The thing can be gone while the dialog is open (eaten, hauled off, destroyed), and a buffered
-                    // count change for it is still sent. Write the null marker so every game skips the change.
-                    if (thing == null || thing.Destroyed) {
-                        Log.Warning($"Multiplayer: dropping a transfer count change in a {tr.GetType().Name}, its thing is gone");
+                    // A transferable can be left with no thing while the dialog is open, and a buffered count change
+                    // for it is still sent. Write the null marker so every game skips the change. A destroyed thing
+                    // (merged into another stack, eaten) still syncs: the session finds its transferable by the id.
+                    if (thing == null) {
+                        Log.Warning($"Multiplayer: dropping a transfer count change in a {tr.GetType().Name}, it has no thing");
                         data.WriteInt32(-1);
                         return;
                     }
