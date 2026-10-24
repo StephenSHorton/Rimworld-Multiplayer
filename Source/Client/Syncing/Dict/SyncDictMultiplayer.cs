@@ -89,6 +89,14 @@ namespace Multiplayer.Client
                     else
                         throw new Exception($"Syncing unsupported transferable type {reference?.GetType()}");
 
+                    // The thing can be gone while the dialog is open (eaten, hauled off, destroyed), and a buffered
+                    // count change for it is still sent. Write the null marker so every game skips the change.
+                    if (thing == null || thing.Destroyed) {
+                        Log.Warning($"Multiplayer: dropping a transfer count change in a {tr.GetType().Name}, its thing is gone");
+                        data.WriteInt32(-1);
+                        return;
+                    }
+
                     MpContext context = data.MpContext();
 
                     if (thing.Spawned)
@@ -103,6 +111,7 @@ namespace Multiplayer.Client
                     if (thingId == -1) return null;
 
                     var transferable = session.GetTransferableByThingId(thingId);
+                    if (transferable == null) return null;
 
                     return new MpTransferableReference(session, transferable);
                 }

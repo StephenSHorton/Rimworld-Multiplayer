@@ -16,10 +16,10 @@ public class MpTransferableReference
 
     public int CountToTransfer
     {
-        get => transferable.CountToTransfer;
-        set => transferable.CountToTransfer = value;
+        get => transferable?.CountToTransfer ?? 0;
+        set { if (transferable != null) transferable.CountToTransfer = value; }
     }
 
-    public override int GetHashCode() => transferable.GetHashCode();
+    public override int GetHashCode() => transferable?.GetHashCode() ?? 0;
     public override bool Equals(object obj) => obj is MpTransferableReference tr && tr.transferable == transferable;
 }
