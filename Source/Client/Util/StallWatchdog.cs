@@ -11,13 +11,16 @@ namespace Multiplayer.Client.Util;
 /// rejoin's world was sent and both peers timed out on LiteNet's 5 s timeout; LiteNet answers pings on its own logic
 /// thread, so a main thread block alone shouldn't do that. A background thread sleeps 100 ms in a loop: a gap over a
 /// second there means every thread stopped (a blocking GC, paging); a frame over two seconds with no such gap means
-/// only the main thread did. Each line carries what the GC did in the gap and the memory load.
+/// only the main thread did. Each line carries what the GC did in the gap and the memory load (<see cref="GcMark"/>).
+/// Every 60 s of an MP session the main thread also logs a memory line, so heap growth shows before a gen2 freezes
+/// the game: that host's freezes came at a 9 GB heap with desync traces on.
 /// </summary>
 public static class StallWatchdog
 {
     private const int SleepMs = 100;
     private const int ProcessGapMs = 1000;
     private const int FrameGapMs = 2000;
+    private const int MemoryLineMs = 60_000;
 
     private static readonly Stopwatch clock = Stopwatch.StartNew();
     private static Thread thread;
@@ -25,11 +28,14 @@ public static class StallWatchdog
     private static volatile int frames;
     private static long lastFrameMs = -1;
     private static GcMark frameMark;
+    private static long lastMemoryMs;
+    private static GcMark memoryMark;
 
     public static void Start()
     {
         if (thread != null) return;
-        frameMark = GcMark.Now();
+        frameMark = memoryMark = GcMark.Now();
+        lastMemoryMs = clock.ElapsedMilliseconds;
         thread = new Thread(Run) { IsBackground = true, Name = "MP stall watchdog", Priority = ThreadPriority.AboveNormal };
         thread.Start();
     }
@@ -47,6 +53,22 @@ public static class StallWatchdog
         }
         frameMark = GcMark.Now();
         lastFrameMs = now;
+
+        if (now - lastMemoryMs >= MemoryLineMs)
+        {
+            if (Multiplayer.Client != null) LogMemory(now);
+            else memoryMark = frameMark;
+            lastMemoryMs = now;
+        }
+    }
+
+    private static void LogMemory(long now)
+    {
+        var mark = GcMark.Now();
+        var traces = Multiplayer.game?.sync is { } sync ? sync.TraceCensus() : "no game";
+        MpLog.Log($"Memory: {GcMark.HeapText()}; desync traces {traces}; " +
+                  $"the last {(now - lastMemoryMs) / 1000} s: {mark.Since(memoryMark)}");
+        memoryMark = mark;
     }
 
     private static void Run()
@@ -68,26 +90,6 @@ public static class StallWatchdog
             }
             mark = next;
             last = now;
-        }
-    }
-
-    private readonly struct GcMark(TimeSpan pause, int gen0, int gen1, int gen2)
-    {
-        private readonly TimeSpan pause = pause;
-        private readonly int gen0 = gen0, gen1 = gen1, gen2 = gen2;
-
-        public static GcMark Now() =>
-            new(GC.GetTotalPauseDuration(), GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2));
-
-        public string Since(GcMark before)
-        {
-            var info = GC.GetGCMemoryInfo(GCKind.Any);
-            var lastPause = info.PauseDurations.Length > 0 ? info.PauseDurations[0].TotalMilliseconds : 0;
-            return $"GC paused {(pause - before.pause).TotalMilliseconds:F0} ms in it (collections gen0 +{gen0 - before.gen0}, " +
-                   $"gen1 +{gen1 - before.gen1}, gen2 +{gen2 - before.gen2}); last GC #{info.Index} gen{info.Generation} " +
-                   $"{(info.Compacted ? "compacting" : "not compacting")}{(info.Concurrent ? " background" : "")} paused {lastPause:F0} ms; " +
-                   $"heap {info.HeapSizeBytes >> 20} MB, working set {Environment.WorkingSet >> 20} MB, " +
-                   $"memory load {info.MemoryLoadBytes >> 20} of {info.TotalAvailableMemoryBytes >> 20} MB";
         }
     }
 }

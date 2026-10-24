@@ -69,6 +69,25 @@ namespace Multiplayer.Client
             return opinion;
         }
 
+        /// <summary>
+        /// For StallWatchdog's memory line: the desync traces held by the kept opinions and the one being built, and
+        /// the free trace items pooled (SimplePool never shrinks, so every item a burst of traces made stays).
+        /// </summary>
+        public string TraceCensus()
+        {
+            int traces = 0, hashes = 0;
+            foreach (var opinion in knownClientOpinions)
+            {
+                traces += opinion.desyncStackTraces.Count;
+                hashes += opinion.desyncStackTraceHashes.Count;
+            }
+
+            int building = currentOpinion?.desyncStackTraces.Count ?? 0;
+            return $"{traces + building} ({building} in the window being built, {traces} in {knownClientOpinions.Count} kept opinions, " +
+                   $"{hashes + (currentOpinion?.desyncStackTraceHashes.Count ?? 0)} hashes), logging {(Multiplayer.game?.gameComp?.logDesyncTraces == true ? "on" : "off")}; " +
+                   $"pooled free raw {SimplePool<StackTraceLogItemRaw>.FreeItemsCount}, managed {SimplePool<StackTraceLogItemManaged>.FreeItemsCount}";
+        }
+
         /// <summary>The start of the opinion being built (Rand attribution keys its ticks by it).</summary>
         public int CurrentOpinionStart => ShouldCollect ? OpinionInBuilding.startTick : -1;
 
