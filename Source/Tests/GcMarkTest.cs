@@ -28,10 +28,13 @@ public class GcMarkTest
     public void HeapTextNamesTheLastBlockingGen2()
     {
         GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+        int before = GC.CollectionCount(2);
         var text = GcMark.HeapText();
+        int after = GC.CollectionCount(2);
 
         Assert.That(text, Does.StartWith("fragmented "));
-        Assert.That(text, Does.Contain($"gen2 collections {GC.CollectionCount(2)}"));
+        var count = int.Parse(System.Text.RegularExpressions.Regex.Match(text, @"gen2 collections (\d+)").Groups[1].Value);
+        Assert.That(count, Is.InRange(before, after));
         Assert.That(text, Does.Match(@"last blocking gen2 #\d+ compacting paused \d+ ms"));
     }
 }
