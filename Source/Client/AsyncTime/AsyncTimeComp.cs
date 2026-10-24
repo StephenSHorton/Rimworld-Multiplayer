@@ -503,6 +503,7 @@ namespace Multiplayer.Client
                 if (mode == DesignatorMode.SingleCell)
                 {
                     IntVec3 cell = SyncSerialization.ReadSync<IntVec3>(data);
+                    if (!StillDesignatable(designator, cell, () => designator.CanDesignateCell(cell))) return;
 
                     designator.DesignateSingleCell(cell);
                     designator.Finalize(true);
@@ -517,6 +518,8 @@ namespace Multiplayer.Client
                 {
                     Thing thing = SyncSerialization.ReadSync<Thing>(data);
                     if (thing == null) return;
+                    if (OverridesCanDesignateThing(designator.GetType()) &&
+                        !StillDesignatable(designator, thing, () => designator.CanDesignateThing(thing))) return;
 
                     designator.DesignateThing(thing);
                     designator.Finalize(true);
@@ -528,6 +531,47 @@ namespace Multiplayer.Client
             {
                 RestoreState();
             }
+        }
+
+        private static readonly Dictionary<Type, bool> overridesCanDesignateThing = new();
+        private static readonly HashSet<Type> designatorCheckThrew = new();
+
+        // A command is checked when it runs, not only when it was sent: the state can change in between (another
+        // player's command, or the same order sent twice while the first copy sat in a paused queue: 32x "Tried to
+        // double-add designation" from a deconstruct gizmo, 2026-10-23), so a stale or duplicate command does nothing,
+        // the same on every game. The check reads what the Designate* call reads: the map, the command's faction and
+        // player context (god mode), and the state SetState set up. Only Accepted is read.
+        private static bool StillDesignatable(Designator designator, object target, Func<AcceptanceReport> check)
+        {
+            // The gravship designator lives in the controller with its marker; its check isn't the command's to make
+            if (designator is Designator_MoveGravship) return true;
+
+            try
+            {
+                if (check().Accepted) return true;
+            }
+            catch (Exception e)
+            {
+                // A check that needs interface state (a mod's) keeps the old behaviour of designating anyway
+                if (designatorCheckThrew.Add(designator.GetType()))
+                    MpLog.Warn($"Designator {designator.GetType()} check threw, designating without it: {e}");
+                return true;
+            }
+
+            MpLog.Debug($"Skipped a stale {designator.GetType().Name} command on {target}");
+            return false;
+        }
+
+        // The base CanDesignateThing rejects everything; a designator that doesn't override it is never checked
+        private static bool OverridesCanDesignateThing(Type type)
+        {
+            if (!overridesCanDesignateThing.TryGetValue(type, out bool overrides))
+            {
+                var method = type.GetMethod(nameof(Designator.CanDesignateThing), [typeof(Thing)]);
+                overridesCanDesignateThing[type] = overrides = method != null && method.DeclaringType != typeof(Designator);
+            }
+
+            return overrides;
         }
 
         private bool nothingHappeningCached;
