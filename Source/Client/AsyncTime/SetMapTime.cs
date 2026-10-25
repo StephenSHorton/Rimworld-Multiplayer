@@ -255,6 +255,23 @@ namespace Multiplayer.Client
         }
     }
 
+    // lastNonStarvingTick is stamped in the pawn's own map time (world time in a caravan), but the
+    // alerts read TicksStarving for every map under the current map's time. With async time a
+    // map that runs behind the viewed one then shows fed animals as hungry or starving.
+    [HarmonyPatch(typeof(Need_Food), nameof(Need_Food.TicksStarving), MethodType.Getter)]
+    static class TicksStarvingPawnTime
+    {
+        static void Postfix(Need_Food __instance, ref int __result)
+        {
+            if (Multiplayer.Client == null || !Multiplayer.GameComp.asyncTime) return;
+
+            var map = __instance.pawn?.MapHeld;
+            int ticks = map != null ? map.AsyncTime()?.mapTicks ?? Find.TickManager.ticksGameInt
+                : Multiplayer.AsyncWorldTime.worldTicks;
+            __result = Math.Max(0, ticks - __instance.lastNonStarvingTick);
+        }
+    }
+
     public struct TimeSnapshot
     {
         public int ticks;
